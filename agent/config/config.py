@@ -33,9 +33,7 @@ generic_scripts_skill = load_skill_from_dir(_SKILLS_DIR / "script-execution")
 script_generator_skill = load_skill_from_dir(_SKILLS_DIR / "script-generator")
 memory_agent_skill = load_skill_from_dir(_SKILLS_DIR / "memory-agent")
 intent_router_skill = load_skill_from_dir(_SKILLS_DIR / "intent-router")
-sd_agent_skill = load_skill_from_dir(_SKILLS_DIR / "sd-agent")
-fi_agent_skill = load_skill_from_dir(_SKILLS_DIR / "fi-agent")
-sap_technical_skill = load_skill_from_dir(_SKILLS_DIR / "sap-technical-agent")
+strava_agent_skill = load_skill_from_dir(_SKILLS_DIR / "strava-agent")
 
 
 def get_llm_provider(llm_provider: str | None = None, model_name: str | None = None) -> LiteLlm:
@@ -59,6 +57,3 @@ def get_llm_provider(llm_provider: str | None = None, model_name: str | None = N
         raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")
 
     return model
-
-
-MODEL = get_llm_provider()

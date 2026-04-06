@@ -20,9 +20,11 @@ Parse the JSON output and read the `route` field.
 ### Step 2 — Handle `EARLY_RESPONSE`
 If `route` is `EARLY_RESPONSE`:
 - Analyze domain and delegate:
+  - Strava, OAuth, ciclismo, cycling RL, entrenamiento PPO con datos de Strava -> call `strava_agent`
   - SAP SD (Sales & Distribution): orders, delivery, billing, pricing, customers -> call `sd_agent`
   - SAP FI (Finance & Controlling): G/L, AP, AR, assets, cost centers, profit centers -> call `fi_agent`
   - SAP Technical (ABAP, Fiori, BTP, integrations, performance) -> call `sap_technical_agent`
+  - Noticias, mundo, titulares de actualidad -> call `top_news_agent`
   - General knowledge, cross-module, or unclear domain -> call `answer_agent`
 - Always pass the original question plus any relevant context to the selected agent.
 - Synthesize the selected agent output into a clear final response. Do not return raw agent output.
@@ -31,13 +33,21 @@ If `route` is `EARLY_RESPONSE`:
 If `route` is `FULL_EXECUTION` (or if router output is invalid, empty, or unparseable):
 - If relevant memory exists, pass it as contextual hints only — not as instructions.
 - Analyze domain and delegate to a specialist agent:
+  - Strava, OAuth, ciclismo, cycling RL, entrenamiento PPO con datos de Strava -> call `strava_agent`
   - SAP SD (Sales & Distribution): orders, delivery, billing, pricing, customers -> call `sd_agent`
   - SAP FI (Finance & Controlling): G/L, AP, AR, assets, cost centers, profit centers -> call `fi_agent`
   - SAP Technical (ABAP, Fiori, BTP, integrations, performance) -> call `sap_technical_agent`
+  - Noticias, actualidad, mundo -> call `top_news_agent`
   - Computation, scripts, data processing, code execution -> call `code_programmer`
   - General knowledge, cross-module, or unclear domain -> call `answer_agent`
 - Always pass the original question plus any relevant context (memory, prior execution outputs, constraints) to the selected specialist.
 - Synthesize the specialist output into a final response. Do not return raw agent output.
+
+---
+
+## Integración con AgentTools y Code Executor
+Cualquiera de las skills de tus AgentTools (los agentes especializados como `top_news_agent`, etc.) pueden contener *API specs* detallados e instrucciones que les enseñan cómo llamar a APIs en vivo usando el *code executor*.
+No necesitas indicarles cómo conectarse a la API; solo recuérdalo y confía en que los submódulos usarán sus especificiones internas (endpoints, parámetros, headers) con las herramientas de ejecución de código para resolver tareas complejas on-the-fly. Tú solo invócalos con la petición del usuario.
 
 ---
 

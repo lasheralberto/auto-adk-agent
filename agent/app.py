@@ -14,9 +14,7 @@ from agent.config.config import (
     script_generator_skill,
     memory_agent_skill,
     intent_router_skill,
-    sd_agent_skill,
-    fi_agent_skill,
-    sap_technical_skill,
+    strava_agent_skill,
 )
 from agent.tools.sandbox import (
     generate_script,
@@ -26,6 +24,47 @@ from agent.tools.sandbox import (
     list_project_scripts,
 )
 from agent.tools.memory import retrieve_memory_context, save_interaction_memory
+from agent.tools.strava import (
+    create_activity,
+    create_upload,
+    complete_strava_oauth,
+    explore_segments,
+    export_route_gpx,
+    export_route_tcx,
+    get_activity_by_id,
+    get_activity_comments,
+    get_activity_kudoers,
+    get_activity_laps,
+    get_activity_streams,
+    get_activity_zones,
+    get_athlete_stats,
+    get_club_activities,
+    get_club_admins,
+    get_club_by_id,
+    get_club_members,
+    get_gear_by_id,
+    get_logged_in_athlete,
+    get_logged_in_athlete_zones,
+    parse_strava_redirect_url,
+    refresh_strava_access_token,
+    get_route_by_id,
+    get_route_streams,
+    get_segment_by_id,
+    get_segment_effort_by_id,
+    get_segment_effort_streams,
+    get_segment_streams,
+    get_upload_by_id,
+    list_athlete_routes,
+    list_logged_in_athlete_activities,
+    list_logged_in_athlete_clubs,
+    list_segment_efforts,
+    list_starred_segments,
+    set_segment_starred,
+    start_strava_oauth,
+    train_strava_rl_model,
+    update_activity_by_id,
+    update_logged_in_athlete_weight,
+)
 
 
 def build_orchestrator(llm_provider: str | None = None, model_name: str | None = None) -> LlmAgent:
@@ -67,24 +106,54 @@ def build_orchestrator(llm_provider: str | None = None, model_name: str | None =
         ],
     )
 
-    # ─── Specialist Functional / Technical Agents ──────────────────────────────
-    sd_agent = LlmAgent(
-        name="sd_agent",
+    strava_agent = LlmAgent(
+        name="strava_agent",
         model=selected_model,
-        instruction=sd_agent_skill.instructions,
+        instruction=strava_agent_skill.instructions,
+        tools=[
+            start_strava_oauth,
+            parse_strava_redirect_url,
+            complete_strava_oauth,
+            refresh_strava_access_token,
+            get_logged_in_athlete,
+            update_logged_in_athlete_weight,
+            get_logged_in_athlete_zones,
+            get_athlete_stats,
+            list_logged_in_athlete_activities,
+            get_activity_by_id,
+            create_activity,
+            update_activity_by_id,
+            get_activity_laps,
+            get_activity_zones,
+            get_activity_comments,
+            get_activity_kudoers,
+            get_activity_streams,
+            get_segment_by_id,
+            list_starred_segments,
+            set_segment_starred,
+            list_segment_efforts,
+            explore_segments,
+            get_segment_effort_by_id,
+            get_segment_effort_streams,
+            get_segment_streams,
+            get_club_by_id,
+            get_club_members,
+            get_club_admins,
+            get_club_activities,
+            list_logged_in_athlete_clubs,
+            get_gear_by_id,
+            get_route_by_id,
+            list_athlete_routes,
+            export_route_gpx,
+            export_route_tcx,
+            get_route_streams,
+            create_upload,
+            get_upload_by_id,
+            train_strava_rl_model,
+        ],
     )
 
-    fi_agent = LlmAgent(
-        name="fi_agent",
-        model=selected_model,
-        instruction=fi_agent_skill.instructions,
-    )
-
-    sap_technical_agent = LlmAgent(
-        name="sap_technical_agent",
-        model=selected_model,
-        instruction=sap_technical_skill.instructions,
-    )
+    
 
     # ─── Answer Agent ────────────────────────────────────────────────────────────
     answer_agent = LlmAgent(
@@ -109,22 +178,25 @@ def build_orchestrator(llm_provider: str | None = None, model_name: str | None =
     instruction=orchestrator_skill.instructions,
     tools=[
         AgentTool(agent=intent_router),
+        AgentTool(agent=strava_agent),
         AgentTool(agent=code_programmer),
-        AgentTool(agent=sd_agent),          # ← directo al orchestrator
-        AgentTool(agent=fi_agent),          # ← directo al orchestrator
-        AgentTool(agent=sap_technical_agent), # ← directo al orchestrator
         AgentTool(agent=answer_agent),      # solo para respuestas generales
+        
     ],
     )
 
-
-# Keep a default orchestrator for existing imports/CLI usage.
-orchestrator = build_orchestrator()
-
 async def main():
-    question = sys.argv[1] if len(sys.argv) > 1 else "Calculate and print the first 10 Fibonacci numbers"
+    question = " ".join(sys.argv[1:]).strip()
+    if not question:
+        question = input("Pregunta> ").strip()
+
+    if not question:
+        print("No se proporciono ninguna pregunta.")
+        return
+
+    orchestrator = build_orchestrator()
     result = await run_agent(question, orchestrator)
- 
+    print(result.get("response", ""))
 
 if __name__ == "__main__":
     asyncio.run(main())

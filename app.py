@@ -403,5 +403,16 @@ def delete_vs_file():
     except Exception as e:
         return {"error": str(e)}, 500
 
+async def _run_cli_once() -> None:
+    question = input("Pregunta> ").strip()
+    if not question:
+        print("No se proporciono ninguna pregunta.")
+        return
+
+    orchestrator = build_orchestrator()
+    result = await run_agent(question, orchestrator)
+    print(result.get("response", ""))
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    asyncio.run(_run_cli_once())

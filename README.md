@@ -85,6 +85,8 @@ Run the basic app (POC):
 python app.py
 ```
 
+When you run it locally, it will ask for a question in the CLI and send it to the orchestrator.
+
 Run tests:
 
 ```bash
@@ -99,6 +101,13 @@ Configuration values are defined in `agent/config/config.py`. You can switch mem
 - `redis_provider` - requires Redis server
 - `sqlite_provider` - file-based local DB
 - `openai_provider` - wraps OpenAI for embedding/semantic memory
+
+For Strava OAuth, define these variables in your `.env` file so the agent can authenticate without asking for credentials in chat:
+
+```env
+STRAVA_CLIENT_ID=your_strava_client_id
+STRAVA_CLIENT_SECRET=your_strava_client_secret
+```
 
 ## How to Add a Skill
 
