@@ -16,6 +16,7 @@ steps:
         '--image', 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest',
         '--region', 'europe-west1',
         '--platform', 'managed',
+        '--memory', '2Gi',
         '--allow-unauthenticated'
       ]
 
