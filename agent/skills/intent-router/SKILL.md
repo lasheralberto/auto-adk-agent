@@ -15,10 +15,11 @@ Contrato de salida:
 Política de decisión:
 1. Usa `EARLY_RESPONSE` solo cuando baste una respuesta conversacional y no haga falta llamar APIs, ejecutar scripts, generar código, validar archivos ni obtener datos verificables externos.
 2. Usa `FULL_EXECUTION` cuando la petición requiera herramientas, scripts, cómputo, parsing de datos, transformación de archivos, análisis reproducible o acceso a resultados verificables.
-3. Usa `FULL_EXECUTION` para cualquier flujo de Strava OAuth, intercambio de tokens, refresh token, validación de redirect URL, consulta o actualización contra la API de Strava, uploads o entrenamiento RL.
-4. Usa `FULL_EXECUTION` para peticiones de análisis de datos deportivos, métricas derivadas, agregaciones, parsing de GPX/TCX/CSV/JSON o generación/ejecución de scripts.
-5. Usa `EARLY_RESPONSE` para saludos, small talk, reformulación de texto, explicaciones generales y preguntas conceptuales simples que no dependan de datos vivos de Strava ni de ejecución.
-6. Si hay duda, elige `FULL_EXECUTION`.
-7. No llames herramientas.
-8. No incluyas markdown ni texto adicional.
-9. Mantén `reason` muy corto.
+3. Si la consulta menciona Strava o entidades de Strava (atleta, actividad, segmentos, rutas, clubes, gear, OAuth, token, uploads, laps, streams, estadísticas), usa siempre `FULL_EXECUTION`.
+4. Usa `FULL_EXECUTION` para cualquier flujo de Strava OAuth, intercambio de tokens, refresh token, validación de redirect URL, consulta o actualización contra la API de Strava, uploads o entrenamiento RL.
+5. Usa `FULL_EXECUTION` para peticiones de análisis de datos deportivos, métricas derivadas, agregaciones, parsing de GPX/TCX/CSV/JSON o generación/ejecución de scripts.
+6. Usa `EARLY_RESPONSE` para saludos, small talk, reformulación de texto y preguntas generales no relacionadas con Strava ni ejecución.
+7. Si hay duda, elige `FULL_EXECUTION`.
+8. No llames herramientas.
+9. No incluyas markdown ni texto adicional.
+10. Mantén `reason` muy corto.

@@ -2,7 +2,11 @@ import asyncio
 import sys
 from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
-from google.genai import types
+
+try:
+    from google.adk.planners import PlanReActPlanner
+except Exception:  # noqa: BLE001
+    PlanReActPlanner = None
 
 from agent.runner import run_agent
 from agent.config.config import (
@@ -15,6 +19,9 @@ from agent.config.config import (
     memory_agent_skill,
     intent_router_skill,
     strava_agent_skill,
+    strava_coach_skill,
+    strava_formatter_skill,
+    plan_react_planner_skill,
 )
 from agent.tools.sandbox import (
     generate_script,
@@ -68,8 +75,42 @@ from agent.tools.strava import (
 )
 
 
-def build_orchestrator(llm_provider: str | None = None, model_name: str | None = None) -> LlmAgent:
+def _build_plan_react_kwargs() -> dict[str, object]:
+    if PlanReActPlanner is None:
+        return {}
+
+    try:
+        return {"planner": PlanReActPlanner()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _create_plan_react_planner_agent(selected_model: object) -> AgentTool:
+    planner_kwargs = _build_plan_react_kwargs()
+    try:
+        planner_agent = LlmAgent(
+            name="plan_react_planner",
+            model=selected_model,
+            instruction=plan_react_planner_skill.instructions,
+            **planner_kwargs,
+        )
+    except TypeError:
+        planner_agent = LlmAgent(
+            name="plan_react_planner",
+            model=selected_model,
+            instruction=plan_react_planner_skill.instructions,
+        )
+
+    return AgentTool(agent=planner_agent)
+
+
+def build_orchestrator(
+    llm_provider: str | None = None,
+    model_name: str | None = None,
+    planner_mode: str | None = None,
+) -> LlmAgent:
     selected_model = get_llm_provider(llm_provider=llm_provider, model_name=model_name)
+    normalized_planner_mode = (planner_mode or "full_only").strip().lower()
 
     intent_router = LlmAgent(
         name="intent_router",
@@ -107,8 +148,9 @@ def build_orchestrator(llm_provider: str | None = None, model_name: str | None =
         ],
     )
 
-    strava_agent = LlmAgent(
-        name="strava_agent",
+    # 1) Agente de datos Strava: concentra llamadas reales a la API.
+    strava_data_agent = AgentTool(agent=LlmAgent(
+        name="strava_data_agent",
         model=selected_model,
         instruction=strava_agent_skill.instructions,
         tools=[
@@ -152,7 +194,23 @@ def build_orchestrator(llm_provider: str | None = None, model_name: str | None =
             get_upload_by_id,
             train_strava_rl_model,
         ],
-    )
+    ))
+
+    # 2) Agente coach: interpreta datos y recomendaciones deportivas.
+    strava_coach_agent = AgentTool(agent=LlmAgent(
+        name="strava_coach_agent",
+        model=selected_model,
+        instruction=strava_coach_skill.instructions,
+        tools=[strava_data_agent],
+    ))
+
+    # 3) Agente formateador: convierte salida del coach a formato legible para frontend.
+    formatter_agent = AgentTool(agent=LlmAgent(
+        name="strava_agent",
+        model=selected_model,
+        instruction=strava_formatter_skill.instructions,
+        tools=[strava_coach_agent],
+    ))
 
 
 
@@ -173,16 +231,38 @@ def build_orchestrator(llm_provider: str | None = None, model_name: str | None =
 
 
     # ─── Orchestrator ─────────────────────────────────────────────────────────────
+    orchestrator_tools = [
+        AgentTool(agent=intent_router),
+    ]
+
+    if normalized_planner_mode in {"always", "full_only"}:
+        orchestrator_tools.append(_create_plan_react_planner_agent(selected_model))
+
+    orchestrator_tools.extend(
+        [
+            formatter_agent,
+            AgentTool(agent=code_programmer),
+            AgentTool(agent=answer_agent),
+        ]
+    )
+
+    orchestrator_instruction = orchestrator_skill.instructions
+    if normalized_planner_mode == "always":
+        orchestrator_instruction = (
+            f"{orchestrator_instruction}\n\n"
+            "Runtime directive: execute plan_react_planner for every request before delegating."
+        )
+    else:
+        orchestrator_instruction = (
+            f"{orchestrator_instruction}\n\n"
+            "Runtime directive: execute plan_react_planner only when intent_router returns FULL_EXECUTION."
+        )
+
     return LlmAgent(
     name="orchestrator",
     model=selected_model,
-    instruction=orchestrator_skill.instructions,
-    tools=[
-        AgentTool(agent=intent_router),
-        AgentTool(agent=strava_agent),
-        AgentTool(agent=code_programmer),
-        AgentTool(agent=answer_agent),      # solo para respuestas generales  
-    ],
+    instruction=orchestrator_instruction,
+    tools=orchestrator_tools,
     )
 
 async def main():

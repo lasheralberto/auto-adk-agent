@@ -40,6 +40,13 @@ def _stream_generator(question: str, agent: object, run_agent_streaming_fn) -> G
         if isinstance(item, tuple) and item[0] is _ERROR:
             yield _sse({"response": str(item[1]), "tool_calls": []}, event="error")
             break
+
+        if isinstance(item, dict):
+            event_name = str(item.get("_event", "chunk")).strip() or "chunk"
+            payload = {key: value for key, value in item.items() if key != "_event"}
+            yield _sse(payload, event=event_name)
+            continue
+
         yield _sse(item)
 
 def _rag_stream_generator(rag_filenames, augmented_question, orchestrator, run_agent_streaming_fn):

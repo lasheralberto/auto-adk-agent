@@ -239,13 +239,25 @@ def add_to_vs():
 
 def _parse_chat_request(
     data: dict,
-) -> tuple[str | None, str | None, str | None, bool, str | None, str | None, int | None]:
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    bool,
+    str | None,
+    str | None,
+    int | None,
+    str,
+    str,
+]:
     question = data.get("message") or data.get("question")
     model = data.get("model")
     llm_param = (data.get("llm_provider") or data.get("llm") or os.environ.get("LLM_PROVIDER") or os.environ.get("LLM") or "")
     stream_param = data.get("stream", False)
     strava_access_token = data.get("strava_access_token")
     strava_athlete_id = data.get("strava_athlete_id")
+    response_format = data.get("response_format")
+    planner_mode = data.get("planner_mode")
 
     if isinstance(stream_param, str):
         stream = stream_param.lower() in ("true", "1", "yes")
@@ -275,7 +287,33 @@ def _parse_chat_request(
         else None
     )
 
-    return question, llm_provider, model_name, stream, vector_store_id, normalized_access_token, athlete_id
+    if isinstance(response_format, str) and response_format.strip():
+        normalized_response_format = response_format.strip().lower()
+    else:
+        normalized_response_format = "plan_react_v1"
+
+    if normalized_response_format not in {"plan_react_v1", "structured", "plain"}:
+        normalized_response_format = "plan_react_v1"
+
+    if isinstance(planner_mode, str) and planner_mode.strip():
+        normalized_planner_mode = planner_mode.strip().lower()
+    else:
+        normalized_planner_mode = "full_only"
+
+    if normalized_planner_mode not in {"off", "full_only", "always"}:
+        normalized_planner_mode = "full_only"
+
+    return (
+        question,
+        llm_provider,
+        model_name,
+        stream,
+        vector_store_id,
+        normalized_access_token,
+        athlete_id,
+        normalized_response_format,
+        normalized_planner_mode,
+    )
 
 
 def _normalize_chat_result(result: object) -> dict[str, object]:
@@ -290,10 +328,20 @@ def _normalize_chat_result(result: object) -> dict[str, object]:
         if not isinstance(tool_calls, list):
             tool_calls = []
 
-        return {
+        normalized_result: dict[str, object] = {
             "response": str(response_text) if response_text is not None else "",
             "tool_calls": tool_calls,
         }
+
+        structured = result.get("structured")
+        if isinstance(structured, dict):
+            normalized_result["structured"] = structured
+
+        api_version = result.get("api_version")
+        if isinstance(api_version, str) and api_version.strip():
+            normalized_result["api_version"] = api_version.strip()
+
+        return normalized_result
 
     return {
         "response": str(result),
@@ -313,6 +361,8 @@ def chat_agent() -> Response | tuple[dict, int]:
         vs_id,
         strava_access_token,
         strava_athlete_id,
+        response_format,
+        planner_mode,
     ) = _parse_chat_request(data)
 
     print(
@@ -362,13 +412,26 @@ def chat_agent() -> Response | tuple[dict, int]:
         orchestrator = build_orchestrator(
             llm_provider=llm_provider.strip().lower(),
             model_name=model_name_to_use,
+            planner_mode=planner_mode,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
     if stream:
+        run_streaming_with_format = lambda current_question, current_agent: run_agent_streaming(
+            current_question,
+            current_agent,
+            response_format=response_format,
+        )
         return Response(
-            stream_with_context(_rag_stream_generator(rag_filenames, augmented_question, orchestrator, run_agent_streaming)),
+            stream_with_context(
+                _rag_stream_generator(
+                    rag_filenames,
+                    augmented_question,
+                    orchestrator,
+                    run_streaming_with_format,
+                )
+            ),
             content_type="text/event-stream",
             headers={
                 "X-Accel-Buffering": "no",
@@ -377,7 +440,15 @@ def chat_agent() -> Response | tuple[dict, int]:
             },
         )
 
-    result = _normalize_chat_result(asyncio.run(run_agent(augmented_question, orchestrator)))
+    result = _normalize_chat_result(
+        asyncio.run(
+            run_agent(
+                augmented_question,
+                orchestrator,
+                response_format=response_format,
+            )
+        )
+    )
 
     if rag_filenames and isinstance(result, dict):
         result["rag_files"] = rag_filenames

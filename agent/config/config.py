@@ -34,6 +34,9 @@ script_generator_skill = load_skill_from_dir(_SKILLS_DIR / "script-generator")
 memory_agent_skill = load_skill_from_dir(_SKILLS_DIR / "memory-agent")
 intent_router_skill = load_skill_from_dir(_SKILLS_DIR / "intent-router")
 strava_agent_skill = load_skill_from_dir(_SKILLS_DIR / "strava-agent")
+strava_coach_skill = load_skill_from_dir(_SKILLS_DIR / "strava-coach")
+strava_formatter_skill = load_skill_from_dir(_SKILLS_DIR / "strava-formatter")
+plan_react_planner_skill = load_skill_from_dir(_SKILLS_DIR / "plan-react-planner")
 
 
 def get_llm_provider(llm_provider: str | None = None, model_name: str | None = None) -> LiteLlm:

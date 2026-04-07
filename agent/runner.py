@@ -1,5 +1,6 @@
 import uuid
 import json
+import re
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -10,6 +11,134 @@ from agent.tools.sandbox.script_execution_tool import maybe_execute_matching_scr
 APP_NAME = "multi_agent_executor"
 USER_ID = "user1"
 _STREAM_CHUNK_SIZE = 180
+
+_PLAN_REACT_SECTION_TAGS: tuple[tuple[str, str], ...] = (
+    ("planning", "PLANNING"),
+    ("reasoning", "REASONING"),
+    ("action", "ACTION"),
+    ("observation", "OBSERVATION"),
+    ("replanning", "REPLANNING"),
+    ("final_answer", "FINAL_ANSWER"),
+)
+_PLAN_REACT_SECTIONS_ORDER = [section for section, _ in _PLAN_REACT_SECTION_TAGS]
+_PLAN_REACT_TAG_CLEAN_RE = re.compile(
+    r"</?(?:PLANNING|REASONING|ACTION|OBSERVATION|REPLANNING|FINAL_ANSWER)>",
+    flags=re.IGNORECASE,
+)
+
+
+def _normalize_response_format(response_format: str | None) -> str:
+    if not isinstance(response_format, str):
+        return "plan_react_v1"
+
+    normalized = response_format.strip().lower()
+    if normalized in {"plain", "plan_react_v1", "structured"}:
+        return normalized
+    return "plan_react_v1"
+
+
+def _structured_output_enabled(response_format: str | None) -> bool:
+    return _normalize_response_format(response_format) in {"plan_react_v1", "structured"}
+
+
+def _extract_plan_react_sections(text: str) -> dict[str, list[str]]:
+    if not text:
+        return {}
+
+    sections: dict[str, list[str]] = {}
+    for section, tag in _PLAN_REACT_SECTION_TAGS:
+        pattern = rf"<{tag}>\s*(.*?)\s*</{tag}>"
+        matches = re.findall(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        cleaned_matches = [str(match).strip() for match in matches if str(match).strip()]
+        if cleaned_matches:
+            sections[section] = cleaned_matches
+
+    return sections
+
+
+def _strip_plan_react_tags(text: str) -> str:
+    if not text:
+        return ""
+
+    without_tags = _PLAN_REACT_TAG_CLEAN_RE.sub("", text)
+    normalized = re.sub(r"\n{3,}", "\n\n", without_tags)
+    return normalized.strip()
+
+
+def _format_tool_observation(entry: dict[str, str]) -> str:
+    tool = entry.get("tool", "tool")
+    agent = entry.get("agent", "")
+    output = entry.get("output", "").strip()
+    if len(output) > 600:
+        output = f"{output[:600]}..."
+
+    if agent:
+        return f"[{agent}] {tool}: {output}"
+    return f"{tool}: {output}"
+
+
+def _build_structured_payload(
+    text: str,
+    tool_observations: list[str] | None = None,
+) -> dict[str, object] | None:
+    sections = _extract_plan_react_sections(text)
+
+    if tool_observations:
+        existing_observations = sections.get("observation", [])
+        sections["observation"] = [*existing_observations, *tool_observations]
+
+    if not sections:
+        return None
+
+    ordered_sections: dict[str, list[str]] = {}
+    for section in _PLAN_REACT_SECTIONS_ORDER:
+        values = sections.get(section)
+        if values:
+            ordered_sections[section] = values
+
+    return {
+        "format": "plan_react_v1",
+        "sections": ordered_sections,
+    }
+
+
+def _extract_response_text(text: str, structured: dict[str, object] | None = None) -> str:
+    if structured and isinstance(structured.get("sections"), dict):
+        final_answer = structured["sections"].get("final_answer")
+        if isinstance(final_answer, list) and final_answer:
+            final_text = str(final_answer[-1]).strip()
+            if final_text:
+                return final_text
+
+    stripped = _strip_plan_react_tags(text)
+    if stripped:
+        return stripped
+    return text.strip()
+
+
+def _collect_new_section_blocks(
+    sections: dict[str, list[str]],
+    emitted_counts: dict[str, int],
+) -> list[dict[str, object]]:
+    new_blocks: list[dict[str, object]] = []
+
+    for section in _PLAN_REACT_SECTIONS_ORDER:
+        values = sections.get(section, [])
+        previous_count = emitted_counts.get(section, 0)
+        for index in range(previous_count, len(values)):
+            block_text = str(values[index]).strip()
+            if not block_text:
+                continue
+            emitted_counts[section] = index + 1
+            new_blocks.append(
+                {
+                    "section": section,
+                    "text": block_text,
+                    "index": index,
+                }
+            )
+
+    return new_blocks
 
 
 def _to_plain_value(value: object) -> object:
@@ -364,7 +493,14 @@ def _extract_tool_score_events(content: object, event: object | None = None) -> 
     return scores
 
 
-async def _run_once(message_text: str, session_id: str, agent: object) -> dict[str, object]:
+async def _run_once(
+    message_text: str,
+    session_id: str,
+    agent: object,
+    response_format: str | None = None,
+) -> dict[str, object]:
+    structured_enabled = _structured_output_enabled(response_format)
+
     session_service = InMemorySessionService()
     await session_service.create_session(
         app_name=APP_NAME,
@@ -381,6 +517,8 @@ async def _run_once(message_text: str, session_id: str, agent: object) -> dict[s
 
     last_text = ""
     tool_calls: list[dict[str, object]] = []
+    tool_observations: list[str] = []
+    seen_observations: set[str] = set()
     async for event in runner.run_async(
         user_id=USER_ID,
         session_id=session_id,
@@ -388,16 +526,56 @@ async def _run_once(message_text: str, session_id: str, agent: object) -> dict[s
     ):
         _append_unique_tool_calls(tool_calls, _extract_tool_calls(event.content, event))
 
+        if structured_enabled:
+            output_events = _extract_tool_output_events(event.content, event)
+            for output_event in output_events:
+                observation = _format_tool_observation(output_event)
+                if observation in seen_observations:
+                    continue
+                seen_observations.add(observation)
+                tool_observations.append(observation)
+
         current_text = _extract_text(event.content)
         if current_text:
             last_text = current_text
 
         if event.is_final_response():
             final_text = _extract_text(event.content)
-            if final_text:
-                return {"response": final_text, "tool_calls": tool_calls}
+            selected_text = final_text or last_text
+            structured_payload = (
+                _build_structured_payload(selected_text, tool_observations)
+                if structured_enabled
+                else None
+            )
+            response_text = _extract_response_text(selected_text, structured_payload)
 
-    return {"response": last_text, "tool_calls": tool_calls}
+            payload: dict[str, object] = {
+                "response": response_text,
+                "tool_calls": tool_calls,
+            }
+            if structured_payload:
+                payload["structured"] = structured_payload
+                payload["api_version"] = "v2"
+
+            if final_text:
+                return payload
+
+    structured_payload = (
+        _build_structured_payload(last_text, tool_observations)
+        if structured_enabled
+        else None
+    )
+    response_text = _extract_response_text(last_text, structured_payload)
+
+    payload = {
+        "response": response_text,
+        "tool_calls": tool_calls,
+    }
+    if structured_payload:
+        payload["structured"] = structured_payload
+        payload["api_version"] = "v2"
+
+    return payload
 
 
 async def stream_agent(question: str, agent: object):
@@ -430,12 +608,17 @@ async def stream_agent(question: str, agent: object):
             yield text
 
 
-async def run_agent_streaming(question: str, agent: object):
+async def run_agent_streaming(
+    question: str,
+    agent: object,
+    response_format: str | None = None,
+):
     """Async generator that yields payload chunks with response/tool_calls."""
     prompt_text = _build_prompt_with_precomputed_context(question)
     request_id = uuid.uuid4().hex
     session1_id = f"session1-{request_id}"
     session2_id = f"session2-{request_id}"
+    structured_enabled = _structured_output_enabled(response_format)
 
     async def _stream_attempt(message_text: str, session_id: str):
         session_service = InMemorySessionService()
@@ -452,14 +635,18 @@ async def run_agent_streaming(question: str, agent: object):
         )
         message = types.Content(role="user", parts=[types.Part(text=message_text)])
 
-        last_full_text = ""
+        last_visible_text = ""
         tool_calls: list[dict[str, object]] = []
+        emitted_section_counts: dict[str, int] = {}
+        tool_observations: list[str] = []
+        seen_observations: set[str] = set()
         async for event in runner.run_async(
             user_id=USER_ID,
             session_id=session_id,
             new_message=message,
         ):
             payload: dict[str, object] = {}
+            structured_blocks: list[dict[str, object]] = []
 
             added_calls = _collect_unique_tool_calls(
                 tool_calls, _extract_tool_calls(event.content, event)
@@ -471,18 +658,94 @@ async def run_agent_streaming(question: str, agent: object):
             if score_events:
                 payload["score"] = score_events[-1].get("score")
 
+            if structured_enabled:
+                output_events = _extract_tool_output_events(event.content, event)
+                for output_event in output_events:
+                    observation_text = _format_tool_observation(output_event)
+                    if observation_text in seen_observations:
+                        continue
+                    seen_observations.add(observation_text)
+                    tool_observations.append(observation_text)
+
+                    observation_index = emitted_section_counts.get("observation", 0)
+                    emitted_section_counts["observation"] = observation_index + 1
+                    structured_blocks.append(
+                        {
+                            "section": "observation",
+                            "text": observation_text,
+                            "index": observation_index,
+                        }
+                    )
+
             full_text = _extract_text(event.content)
-            delta = _extract_delta(full_text, last_full_text)
-            if delta:
-                last_full_text = full_text
-                payload["response"] = delta
+
+            if full_text:
+                if structured_enabled:
+                    extracted_sections = _extract_plan_react_sections(full_text)
+                    structured_blocks.extend(
+                        _collect_new_section_blocks(extracted_sections, emitted_section_counts)
+                    )
+                    structured_payload = _build_structured_payload(full_text, tool_observations)
+                    visible_text = _extract_response_text(full_text, structured_payload)
+                else:
+                    visible_text = full_text
+
+                visible_delta = _extract_delta(visible_text, last_visible_text)
+                if visible_delta:
+                    last_visible_text = visible_text
+                    payload["response"] = visible_delta
+
+            if structured_blocks:
+                payload["structured"] = {
+                    "format": "plan_react_v1",
+                    "blocks": structured_blocks,
+                }
 
             if not payload:
                 continue
 
+            structured_payload = payload.get("structured")
+            if isinstance(structured_payload, dict):
+                blocks = structured_payload.get("blocks")
+                if isinstance(blocks, list):
+                    for block_index, block in enumerate(blocks):
+                        section_name = str(block.get("section", "")).strip().lower()
+                        if section_name not in _PLAN_REACT_SECTIONS_ORDER:
+                            section_name = "observation"
+
+                        block_text = str(block.get("text", "")).strip()
+                        if not block_text:
+                            continue
+
+                        phase_payload: dict[str, object] = {
+                            "_event": section_name,
+                            "structured": {
+                                "format": "plan_react_v1",
+                                "section": section_name,
+                                "text": block_text,
+                                "index": block.get("index", block_index),
+                            },
+                        }
+
+                        if block_index == 0 and payload.get("tool_calls"):
+                            phase_payload["tool_calls"] = payload["tool_calls"]
+                        if block_index == 0 and payload.get("score") is not None:
+                            phase_payload["score"] = payload["score"]
+                        if section_name == "final_answer" and not payload.get("response"):
+                            phase_payload["response"] = block_text
+
+                        yield phase_payload
+
             response_text = str(payload.get("response", ""))
             if not response_text:
-                yield payload
+                if payload.get("tool_calls") or payload.get("score") is not None:
+                    passthrough_payload = {
+                        key: value
+                        for key, value in payload.items()
+                        if key not in {"structured"}
+                    }
+                    if passthrough_payload:
+                        yield passthrough_payload
                 continue
 
             response_chunks = _split_stream_text(response_text)
@@ -496,7 +759,7 @@ async def run_agent_streaming(question: str, agent: object):
 
     got_response = False
     async for payload in _stream_attempt(prompt_text, session1_id):
-        if str(payload.get("response", "")).strip():
+        if str(payload.get("response", "")).strip() or payload.get("structured"):
             got_response = True
         yield payload
 
@@ -513,7 +776,7 @@ async def run_agent_streaming(question: str, agent: object):
 
     retry_got_response = False
     async for payload in _stream_attempt(retry_prompt, session2_id):
-        if str(payload.get("response", "")).strip():
+        if str(payload.get("response", "")).strip() or payload.get("structured"):
             retry_got_response = True
         yield payload
 
@@ -524,13 +787,22 @@ async def run_agent_streaming(question: str, agent: object):
         }
 
 
-async def run_agent(question: str, agent: object) -> dict[str, object]:
+async def run_agent(
+    question: str,
+    agent: object,
+    response_format: str | None = None,
+) -> dict[str, object]:
     prompt_text = _build_prompt_with_precomputed_context(question)
     request_id = uuid.uuid4().hex
     session1_id = f"session1-{request_id}"
     session2_id = f"session2-{request_id}"
 
-    first_attempt = await _run_once(prompt_text, session1_id, agent)
+    first_attempt = await _run_once(
+        prompt_text,
+        session1_id,
+        agent,
+        response_format=response_format,
+    )
     if str(first_attempt.get("response", "")).strip():
         return first_attempt
 
@@ -541,7 +813,12 @@ async def run_agent(question: str, agent: object) -> dict[str, object]:
         "Debes producir una respuesta final en texto para el usuario, usando answer_agent. "
         "Solo pregunta si falta un recurso externo (por ejemplo API key)."
     )
-    second_attempt = await _run_once(retry_prompt, session2_id, agent)
+    second_attempt = await _run_once(
+        retry_prompt,
+        session2_id,
+        agent,
+        response_format=response_format,
+    )
     if str(second_attempt.get("response", "")).strip():
         return second_attempt
 
