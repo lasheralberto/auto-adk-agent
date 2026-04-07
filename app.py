@@ -1,8 +1,11 @@
 import asyncio
+import json
 import os
 import tempfile
 import threading
 import time
+from datetime import date, datetime, time as dt_time, timedelta, timezone
+from typing import Any
 from urllib.parse import urlencode
 
 import requests
@@ -35,6 +38,597 @@ CORS(app, origins=allowed_origins, supports_credentials=True)
 _STRAVA_STATE_TTL_SECONDS = 600
 _strava_oauth_state_cache: dict[str, float] = {}
 _strava_oauth_lock = threading.Lock()
+
+_STRAVA_API_BASE_URL = "https://www.strava.com/api/v3"
+_DEFAULT_WEEKLY_DAYS = 7
+_MAX_WEEKLY_DAYS = 31
+_WEEKLY_ACTIVITY_PER_PAGE = 100
+_WEEKLY_ACTIVITY_MAX_PAGES = 10
+_DEFAULT_ZONE_SAMPLE_LIMIT = 8
+_MAX_ZONE_SAMPLE_LIMIT = 20
+_DEFAULT_CYCLING_SPORT_TYPES = {
+    "Ride",
+    "MountainBikeRide",
+    "GravelRide",
+    "VirtualRide",
+    "EBikeRide",
+    "EMountainBikeRide",
+    "Velomobile",
+    "Handcycle",
+}
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    return default
+
+
+def _extract_http_error_details(exc: requests.HTTPError) -> str:
+    response = exc.response
+    if response is None:
+        return str(exc)
+
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            if payload.get("message"):
+                return str(payload["message"])
+            if payload.get("errors"):
+                return json.dumps(payload["errors"], ensure_ascii=False)
+            return json.dumps(payload, ensure_ascii=False)
+    except ValueError:
+        pass
+
+    return response.text or str(exc)
+
+
+def _extract_strava_access_token(payload: dict[str, Any]) -> str | None:
+    candidates = [
+        payload.get("strava_access_token"),
+        payload.get("access_token"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+
+    auth_header = (request.headers.get("Authorization") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        bearer_token = auth_header[7:].strip()
+        if bearer_token:
+            return bearer_token
+
+    return None
+
+
+def _resolve_week_window(days: int, end_date_raw: str | None) -> tuple[date, date, int, int]:
+    if end_date_raw:
+        end_date = date.fromisoformat(end_date_raw)
+    else:
+        end_date = datetime.now(timezone.utc).date()
+
+    start_date = end_date - timedelta(days=days - 1)
+    start_epoch = int(datetime.combine(start_date, dt_time.min, tzinfo=timezone.utc).timestamp())
+    end_epoch_exclusive = int(
+        datetime.combine(end_date + timedelta(days=1), dt_time.min, tzinfo=timezone.utc).timestamp()
+    )
+    return start_date, end_date, start_epoch, end_epoch_exclusive
+
+
+def _strava_api_request(
+    method: str,
+    path: str,
+    access_token: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> Any:
+    response = requests.request(
+        method=method,
+        url=f"{_STRAVA_API_BASE_URL}{path}",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        },
+        params={key: value for key, value in (params or {}).items() if value is not None},
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" in content_type:
+        return response.json()
+    return response.text
+
+
+def _fetch_activities_for_window(
+    access_token: str,
+    *,
+    after_epoch: int,
+    before_epoch: int,
+    per_page: int = _WEEKLY_ACTIVITY_PER_PAGE,
+    max_pages: int = _WEEKLY_ACTIVITY_MAX_PAGES,
+) -> list[dict[str, Any]]:
+    activities: list[dict[str, Any]] = []
+
+    for page in range(1, max_pages + 1):
+        payload = _strava_api_request(
+            "GET",
+            "/athlete/activities",
+            access_token,
+            params={
+                "after": after_epoch,
+                "before": before_epoch,
+                "page": page,
+                "per_page": per_page,
+            },
+        )
+
+        if not isinstance(payload, list) or not payload:
+            break
+
+        page_activities = [item for item in payload if isinstance(item, dict)]
+        activities.extend(page_activities)
+
+        if len(payload) < per_page:
+            break
+
+    return activities
+
+
+def _filter_cycling_activities(
+    activities: list[dict[str, Any]],
+    sport_types: set[str],
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for activity in activities:
+        sport_type = str(activity.get("sport_type") or activity.get("type") or "").strip()
+        if sport_type in sport_types:
+            filtered.append(activity)
+    return filtered
+
+
+def _build_delta_payload(current: float, previous: float, decimals: int = 2) -> dict[str, float | None]:
+    delta = current - previous
+    delta_pct = None
+    if previous > 0:
+        delta_pct = round((delta / previous) * 100, 1)
+
+    return {
+        "current": round(current, decimals),
+        "previous": round(previous, decimals),
+        "delta": round(delta, decimals),
+        "delta_pct": delta_pct,
+    }
+
+
+def _estimate_tss(activities: list[dict[str, Any]], ftp: int | None) -> float | None:
+    if ftp is None or ftp <= 0:
+        return None
+
+    tss = 0.0
+    has_supported_activity = False
+    for activity in activities:
+        moving_time = _to_int(activity.get("moving_time"), 0)
+        weighted_power = _to_optional_float(activity.get("weighted_average_watts"))
+        if moving_time <= 0 or weighted_power is None or weighted_power <= 0:
+            continue
+
+        has_supported_activity = True
+        intensity_factor = weighted_power / float(ftp)
+        tss += (moving_time / 3600.0) * (intensity_factor ** 2) * 100.0
+
+    if not has_supported_activity:
+        return None
+
+    return round(tss, 1)
+
+
+def _aggregate_weekly_metrics(activities: list[dict[str, Any]]) -> dict[str, Any]:
+    total_distance_m = 0.0
+    total_moving_time_s = 0
+    total_elapsed_time_s = 0
+    total_elevation_gain_m = 0.0
+    total_kilojoules = 0.0
+    total_suffer_score = 0.0
+    total_pr_count = 0
+    total_achievement_count = 0
+
+    power_weighted_sum = 0.0
+    power_weighted_time_s = 0
+    weighted_power_sum = 0.0
+    weighted_power_time_s = 0
+    heartrate_weighted_sum = 0.0
+    heartrate_weighted_time_s = 0
+    cadence_weighted_sum = 0.0
+    cadence_weighted_time_s = 0
+
+    max_heartrate_bpm = 0.0
+    max_watts = 0
+    trainer_count = 0
+    commute_count = 0
+
+    activities_with_power = 0
+    activities_with_device_watts = 0
+    activities_with_heartrate = 0
+    activities_with_cadence = 0
+
+    daily_rollup: dict[str, dict[str, Any]] = {}
+    normalized_activities: list[dict[str, Any]] = []
+    longest_ride: dict[str, Any] | None = None
+
+    for activity in activities:
+        activity_id = _to_int(activity.get("id"), 0)
+        name = str(activity.get("name") or "Actividad")
+        sport_type = str(activity.get("sport_type") or activity.get("type") or "Ride")
+        start_date_local = str(activity.get("start_date_local") or activity.get("start_date") or "")
+        activity_day = start_date_local.split("T", 1)[0] if "T" in start_date_local else start_date_local
+
+        distance_m = _to_float(activity.get("distance"), 0.0)
+        moving_time_s = _to_int(activity.get("moving_time"), 0)
+        elapsed_time_s = _to_int(activity.get("elapsed_time"), 0)
+        elevation_gain_m = _to_float(activity.get("total_elevation_gain"), 0.0)
+        kilojoules = _to_float(activity.get("kilojoules"), 0.0)
+        suffer_score = _to_float(activity.get("suffer_score"), 0.0)
+        pr_count = _to_int(activity.get("pr_count"), 0)
+        achievement_count = _to_int(activity.get("achievement_count"), 0)
+
+        avg_speed_mps = _to_optional_float(activity.get("average_speed"))
+        avg_power_w = _to_optional_float(activity.get("average_watts"))
+        weighted_power_w = _to_optional_float(activity.get("weighted_average_watts"))
+        avg_heartrate_bpm = _to_optional_float(activity.get("average_heartrate"))
+        max_heartrate = _to_optional_float(activity.get("max_heartrate"))
+        avg_cadence_rpm = _to_optional_float(activity.get("average_cadence"))
+        max_watts_activity = _to_optional_int(activity.get("max_watts"))
+
+        trainer = bool(activity.get("trainer"))
+        commute = bool(activity.get("commute"))
+        has_heartrate = bool(activity.get("has_heartrate")) or avg_heartrate_bpm is not None
+        device_watts = bool(activity.get("device_watts"))
+
+        total_distance_m += distance_m
+        total_moving_time_s += moving_time_s
+        total_elapsed_time_s += elapsed_time_s
+        total_elevation_gain_m += elevation_gain_m
+        total_kilojoules += kilojoules
+        total_suffer_score += suffer_score
+        total_pr_count += pr_count
+        total_achievement_count += achievement_count
+
+        if trainer:
+            trainer_count += 1
+        if commute:
+            commute_count += 1
+
+        if avg_power_w is not None and moving_time_s > 0:
+            activities_with_power += 1
+            power_weighted_sum += avg_power_w * moving_time_s
+            power_weighted_time_s += moving_time_s
+
+        if weighted_power_w is not None and moving_time_s > 0:
+            weighted_power_sum += weighted_power_w * moving_time_s
+            weighted_power_time_s += moving_time_s
+
+        if device_watts:
+            activities_with_device_watts += 1
+
+        if has_heartrate:
+            activities_with_heartrate += 1
+            if avg_heartrate_bpm is not None and moving_time_s > 0:
+                heartrate_weighted_sum += avg_heartrate_bpm * moving_time_s
+                heartrate_weighted_time_s += moving_time_s
+
+        if avg_cadence_rpm is not None:
+            activities_with_cadence += 1
+            if moving_time_s > 0:
+                cadence_weighted_sum += avg_cadence_rpm * moving_time_s
+                cadence_weighted_time_s += moving_time_s
+
+        if max_heartrate is not None:
+            max_heartrate_bpm = max(max_heartrate_bpm, max_heartrate)
+
+        if max_watts_activity is not None:
+            max_watts = max(max_watts, max_watts_activity)
+
+        if longest_ride is None or distance_m > _to_float(longest_ride.get("distance_m"), 0.0):
+            longest_ride = {
+                "id": activity_id,
+                "name": name,
+                "distance_m": round(distance_m, 1),
+                "distance_km": round(distance_m / 1000.0, 2),
+                "start_date_local": start_date_local,
+            }
+
+        if activity_day:
+            day_entry = daily_rollup.setdefault(
+                activity_day,
+                {
+                    "date": activity_day,
+                    "activities": 0,
+                    "distance_m": 0.0,
+                    "moving_time_s": 0,
+                    "elapsed_time_s": 0,
+                    "elevation_gain_m": 0.0,
+                    "kilojoules": 0.0,
+                },
+            )
+            day_entry["activities"] += 1
+            day_entry["distance_m"] += distance_m
+            day_entry["moving_time_s"] += moving_time_s
+            day_entry["elapsed_time_s"] += elapsed_time_s
+            day_entry["elevation_gain_m"] += elevation_gain_m
+            day_entry["kilojoules"] += kilojoules
+
+        normalized_activities.append(
+            {
+                "id": activity_id,
+                "name": name,
+                "sport_type": sport_type,
+                "start_date_local": start_date_local,
+                "distance_m": round(distance_m, 1),
+                "distance_km": round(distance_m / 1000.0, 2),
+                "moving_time_s": moving_time_s,
+                "moving_time_h": round(moving_time_s / 3600.0, 2),
+                "elapsed_time_s": elapsed_time_s,
+                "elevation_gain_m": round(elevation_gain_m, 1),
+                "avg_speed_kmh": round(avg_speed_mps * 3.6, 2) if avg_speed_mps is not None else None,
+                "avg_power_w": round(avg_power_w, 1) if avg_power_w is not None else None,
+                "weighted_power_w": round(weighted_power_w, 1) if weighted_power_w is not None else None,
+                "avg_heartrate_bpm": round(avg_heartrate_bpm, 1) if avg_heartrate_bpm is not None else None,
+                "max_heartrate_bpm": round(max_heartrate, 1) if max_heartrate is not None else None,
+                "avg_cadence_rpm": round(avg_cadence_rpm, 1) if avg_cadence_rpm is not None else None,
+                "kilojoules": round(kilojoules, 1),
+                "suffer_score": round(suffer_score, 1),
+                "pr_count": pr_count,
+                "achievement_count": achievement_count,
+                "trainer": trainer,
+                "commute": commute,
+                "has_heartrate": has_heartrate,
+                "device_watts": device_watts,
+            }
+        )
+
+    activity_count = len(activities)
+    avg_speed_mps = (total_distance_m / total_moving_time_s) if total_moving_time_s > 0 else 0.0
+    avg_power_w = (power_weighted_sum / power_weighted_time_s) if power_weighted_time_s > 0 else 0.0
+    weighted_avg_power_w = (
+        (weighted_power_sum / weighted_power_time_s)
+        if weighted_power_time_s > 0
+        else 0.0
+    )
+    avg_heartrate_bpm = (
+        (heartrate_weighted_sum / heartrate_weighted_time_s)
+        if heartrate_weighted_time_s > 0
+        else 0.0
+    )
+    avg_cadence_rpm = (
+        (cadence_weighted_sum / cadence_weighted_time_s)
+        if cadence_weighted_time_s > 0
+        else 0.0
+    )
+
+    sorted_daily = [
+        {
+            "date": day["date"],
+            "activities": day["activities"],
+            "distance_m": round(day["distance_m"], 1),
+            "distance_km": round(day["distance_m"] / 1000.0, 2),
+            "moving_time_s": day["moving_time_s"],
+            "moving_time_h": round(day["moving_time_s"] / 3600.0, 2),
+            "elapsed_time_s": day["elapsed_time_s"],
+            "elevation_gain_m": round(day["elevation_gain_m"], 1),
+            "kilojoules": round(day["kilojoules"], 1),
+        }
+        for day in sorted(daily_rollup.values(), key=lambda item: item["date"])
+    ]
+
+    sorted_activities = sorted(
+        normalized_activities,
+        key=lambda activity: activity.get("start_date_local") or "",
+        reverse=True,
+    )
+
+    summary = {
+        "total_activities": activity_count,
+        "active_days": len(sorted_daily),
+        "total_distance_m": round(total_distance_m, 1),
+        "total_distance_km": round(total_distance_m / 1000.0, 2),
+        "total_moving_time_s": total_moving_time_s,
+        "total_moving_time_h": round(total_moving_time_s / 3600.0, 2),
+        "total_elapsed_time_s": total_elapsed_time_s,
+        "total_elapsed_time_h": round(total_elapsed_time_s / 3600.0, 2),
+        "total_elevation_gain_m": round(total_elevation_gain_m, 1),
+        "total_kilojoules": round(total_kilojoules, 1),
+        "total_suffer_score": round(total_suffer_score, 1),
+        "total_pr_count": total_pr_count,
+        "total_achievement_count": total_achievement_count,
+        "avg_speed_mps": round(avg_speed_mps, 3),
+        "avg_speed_kmh": round(avg_speed_mps * 3.6, 2),
+        "avg_power_w": round(avg_power_w, 1) if avg_power_w > 0 else None,
+        "weighted_avg_power_w": round(weighted_avg_power_w, 1) if weighted_avg_power_w > 0 else None,
+        "avg_heartrate_bpm": round(avg_heartrate_bpm, 1) if avg_heartrate_bpm > 0 else None,
+        "max_heartrate_bpm": round(max_heartrate_bpm, 1) if max_heartrate_bpm > 0 else None,
+        "avg_cadence_rpm": round(avg_cadence_rpm, 1) if avg_cadence_rpm > 0 else None,
+        "max_watts": max_watts if max_watts > 0 else None,
+        "trainer_ratio": round((trainer_count / activity_count) * 100.0, 1) if activity_count > 0 else 0.0,
+        "commute_ratio": round((commute_count / activity_count) * 100.0, 1) if activity_count > 0 else 0.0,
+        "power_data_coverage_pct": (
+            round((activities_with_power / activity_count) * 100.0, 1)
+            if activity_count > 0
+            else 0.0
+        ),
+        "heartrate_data_coverage_pct": (
+            round((activities_with_heartrate / activity_count) * 100.0, 1)
+            if activity_count > 0
+            else 0.0
+        ),
+        "cadence_data_coverage_pct": (
+            round((activities_with_cadence / activity_count) * 100.0, 1)
+            if activity_count > 0
+            else 0.0
+        ),
+        "device_watts_coverage_pct": (
+            round((activities_with_device_watts / activity_count) * 100.0, 1)
+            if activity_count > 0
+            else 0.0
+        ),
+        "longest_ride": longest_ride,
+    }
+
+    return {
+        "summary": summary,
+        "daily": sorted_daily,
+        "activities": sorted_activities,
+    }
+
+
+def _aggregate_activity_zones(
+    access_token: str,
+    activities: list[dict[str, Any]],
+    *,
+    sample_limit: int,
+    total_moving_time_s: int,
+) -> dict[str, Any]:
+    if not activities:
+        return {
+            "available": False,
+            "reason": "No hay actividades de ciclismo para calcular zonas.",
+            "sampled_activities": 0,
+            "distribution": {},
+        }
+
+    candidates = sorted(
+        activities,
+        key=lambda activity: _to_int(activity.get("moving_time"), 0),
+        reverse=True,
+    )[:sample_limit]
+
+    zone_totals: dict[str, dict[tuple[int, int], int]] = {
+        "power": {},
+        "heartrate": {},
+    }
+    sampled = 0
+
+    for activity in candidates:
+        activity_id = _to_int(activity.get("id"), 0)
+        if activity_id <= 0:
+            continue
+
+        try:
+            zone_payload = _strava_api_request(
+                "GET",
+                f"/activities/{activity_id}/zones",
+                access_token,
+            )
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 401:
+                raise
+            if status_code == 403:
+                return {
+                    "available": False,
+                    "reason": "Strava no habilito zonas por actividad para este atleta (Summit o scope insuficiente).",
+                    "sampled_activities": sampled,
+                    "distribution": {},
+                }
+            continue
+
+        if not isinstance(zone_payload, list):
+            continue
+
+        sampled += 1
+        for zone in zone_payload:
+            if not isinstance(zone, dict):
+                continue
+            zone_type = str(zone.get("type") or "").strip().lower()
+            if zone_type not in zone_totals:
+                continue
+
+            for bucket in zone.get("distribution_buckets", []):
+                if not isinstance(bucket, dict):
+                    continue
+                bucket_min = _to_int(bucket.get("min"), 0)
+                bucket_max = _to_int(bucket.get("max"), -1)
+                seconds = _to_int(bucket.get("time"), 0)
+                if seconds <= 0:
+                    continue
+
+                key = (bucket_min, bucket_max)
+                zone_totals[zone_type][key] = zone_totals[zone_type].get(key, 0) + seconds
+
+    if sampled == 0:
+        return {
+            "available": False,
+            "reason": "No se pudieron calcular zonas con los datos disponibles.",
+            "sampled_activities": 0,
+            "distribution": {},
+        }
+
+    distribution: dict[str, list[dict[str, Any]]] = {}
+    for zone_type, buckets in zone_totals.items():
+        sorted_buckets = sorted(buckets.items(), key=lambda item: item[0][0])
+        distribution[zone_type] = [
+            {
+                "min": zone_range[0],
+                "max": zone_range[1],
+                "time_s": seconds,
+                "pct_of_week_moving_time": (
+                    round((seconds / total_moving_time_s) * 100.0, 1)
+                    if total_moving_time_s > 0
+                    else 0.0
+                ),
+            }
+            for zone_range, seconds in sorted_buckets
+        ]
+
+    return {
+        "available": True,
+        "sampled_activities": sampled,
+        "distribution": distribution,
+    }
 
 
 def _prune_expired_oauth_states() -> None:
@@ -587,6 +1181,208 @@ def refresh_strava_auth_token() -> tuple[dict, int]:
         "scope": token_data.get("scope"),
         "athlete": token_data.get("athlete") or {},
     }, 200
+
+
+@app.post("/strava/weekly-summary")
+def get_strava_weekly_summary() -> tuple[dict, int]:
+    """Construye un resumen semanal de KPIs de ciclismo para el dashboard inicial."""
+    data = request.get_json(silent=True) or {}
+    access_token = _extract_strava_access_token(data)
+    if not access_token:
+        return {
+            "error": "Falta strava_access_token en el body o Authorization: Bearer en headers."
+        }, 400
+
+    days = _to_int(data.get("days"), _DEFAULT_WEEKLY_DAYS)
+    days = max(1, min(days, _MAX_WEEKLY_DAYS))
+
+    end_date_raw = data.get("end_date")
+    if end_date_raw is not None and not isinstance(end_date_raw, str):
+        return {"error": "Field 'end_date' must be a string in YYYY-MM-DD format."}, 400
+
+    try:
+        start_date, end_date, start_epoch, end_epoch_exclusive = _resolve_week_window(
+            days=days,
+            end_date_raw=end_date_raw.strip() if isinstance(end_date_raw, str) else None,
+        )
+    except ValueError:
+        return {"error": "Field 'end_date' must use YYYY-MM-DD format."}, 400
+
+    requested_sport_types = data.get("sport_types")
+    if isinstance(requested_sport_types, list):
+        normalized_sport_types = {
+            str(sport_type).strip()
+            for sport_type in requested_sport_types
+            if str(sport_type).strip()
+        }
+        sport_types = normalized_sport_types or set(_DEFAULT_CYCLING_SPORT_TYPES)
+    else:
+        sport_types = set(_DEFAULT_CYCLING_SPORT_TYPES)
+
+    include_activity_zones = _coerce_bool(data.get("include_activity_zones"), default=True)
+    zone_sample_limit = _to_int(data.get("zone_sample_limit"), _DEFAULT_ZONE_SAMPLE_LIMIT)
+    zone_sample_limit = max(1, min(zone_sample_limit, _MAX_ZONE_SAMPLE_LIMIT))
+
+    athlete_id_hint = _to_optional_int(data.get("strava_athlete_id"))
+
+    try:
+        athlete_profile = _strava_api_request("GET", "/athlete", access_token)
+        if not isinstance(athlete_profile, dict):
+            athlete_profile = {}
+
+        athlete_id = athlete_id_hint or _to_optional_int(athlete_profile.get("id"))
+
+        week_activities = _fetch_activities_for_window(
+            access_token,
+            after_epoch=start_epoch,
+            before_epoch=end_epoch_exclusive,
+        )
+        week_cycling_activities = _filter_cycling_activities(week_activities, sport_types)
+        week_metrics = _aggregate_weekly_metrics(week_cycling_activities)
+
+        previous_start_date = start_date - timedelta(days=days)
+        previous_start_epoch = int(
+            datetime.combine(previous_start_date, dt_time.min, tzinfo=timezone.utc).timestamp()
+        )
+        previous_activities = _fetch_activities_for_window(
+            access_token,
+            after_epoch=previous_start_epoch,
+            before_epoch=start_epoch,
+        )
+        previous_cycling_activities = _filter_cycling_activities(previous_activities, sport_types)
+        previous_metrics = _aggregate_weekly_metrics(previous_cycling_activities)
+
+        week_summary = week_metrics["summary"]
+        previous_summary = previous_metrics["summary"]
+
+        ftp = _to_optional_int(athlete_profile.get("ftp"))
+        weighted_avg_power_w = _to_optional_float(week_summary.get("weighted_avg_power_w"))
+        estimated_if = None
+        if ftp is not None and ftp > 0 and weighted_avg_power_w is not None and weighted_avg_power_w > 0:
+            estimated_if = round(weighted_avg_power_w / float(ftp), 3)
+
+        zones_payload: dict[str, Any]
+        if include_activity_zones:
+            zones_payload = _aggregate_activity_zones(
+                access_token,
+                week_cycling_activities,
+                sample_limit=zone_sample_limit,
+                total_moving_time_s=_to_int(week_summary.get("total_moving_time_s"), 0),
+            )
+        else:
+            zones_payload = {
+                "available": False,
+                "reason": "Calculo de zonas desactivado por include_activity_zones=false.",
+                "sampled_activities": 0,
+                "distribution": {},
+            }
+
+        benchmark_payload: dict[str, Any] | None = None
+        if athlete_id is not None:
+            try:
+                athlete_stats = _strava_api_request("GET", f"/athletes/{athlete_id}/stats", access_token)
+                if isinstance(athlete_stats, dict):
+                    benchmark_payload = {
+                        "available": True,
+                        "biggest_ride_distance": athlete_stats.get("biggest_ride_distance"),
+                        "biggest_climb_elevation_gain": athlete_stats.get("biggest_climb_elevation_gain"),
+                        "recent_ride_totals": athlete_stats.get("recent_ride_totals"),
+                        "ytd_ride_totals": athlete_stats.get("ytd_ride_totals"),
+                        "all_ride_totals": athlete_stats.get("all_ride_totals"),
+                    }
+            except requests.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else None
+                if status_code == 401:
+                    raise
+                benchmark_payload = {
+                    "available": False,
+                    "reason": "No fue posible recuperar /athletes/{id}/stats con el token actual.",
+                }
+
+        trends_payload = {
+            "activities": _build_delta_payload(
+                float(_to_int(week_summary.get("total_activities"), 0)),
+                float(_to_int(previous_summary.get("total_activities"), 0)),
+                decimals=0,
+            ),
+            "distance_km": _build_delta_payload(
+                _to_float(week_summary.get("total_distance_km"), 0.0),
+                _to_float(previous_summary.get("total_distance_km"), 0.0),
+                decimals=2,
+            ),
+            "moving_time_h": _build_delta_payload(
+                _to_float(week_summary.get("total_moving_time_h"), 0.0),
+                _to_float(previous_summary.get("total_moving_time_h"), 0.0),
+                decimals=2,
+            ),
+            "elevation_gain_m": _build_delta_payload(
+                _to_float(week_summary.get("total_elevation_gain_m"), 0.0),
+                _to_float(previous_summary.get("total_elevation_gain_m"), 0.0),
+                decimals=1,
+            ),
+            "kilojoules": _build_delta_payload(
+                _to_float(week_summary.get("total_kilojoules"), 0.0),
+                _to_float(previous_summary.get("total_kilojoules"), 0.0),
+                decimals=1,
+            ),
+        }
+
+        return {
+            "week": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days,
+                "after_epoch": start_epoch,
+                "before_epoch": end_epoch_exclusive,
+                "previous_start_date": previous_start_date.isoformat(),
+                "previous_end_date": (start_date - timedelta(days=1)).isoformat(),
+            },
+            "filters": {
+                "sport_types": sorted(sport_types),
+                "include_activity_zones": include_activity_zones,
+                "zone_sample_limit": zone_sample_limit,
+            },
+            "athlete": {
+                "id": athlete_profile.get("id"),
+                "firstname": athlete_profile.get("firstname"),
+                "lastname": athlete_profile.get("lastname"),
+                "measurement_preference": athlete_profile.get("measurement_preference"),
+                "ftp": ftp,
+                "weight": athlete_profile.get("weight"),
+            },
+            "summary": week_summary,
+            "intensity": {
+                "estimated_if": estimated_if,
+                "estimated_tss": _estimate_tss(week_cycling_activities, ftp),
+            },
+            "trends": trends_payload,
+            "daily": week_metrics["daily"],
+            "activities": week_metrics["activities"],
+            "zones": zones_payload,
+            "benchmarks": benchmark_payload,
+        }, 200
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        details = _extract_http_error_details(exc)
+        if status_code in {401, 403}:
+            return {
+                "error": "Strava rechazo la consulta con el token actual.",
+                "details": details,
+            }, status_code
+        return {
+            "error": "Fallo consultando la API de Strava para resumen semanal.",
+            "details": details,
+        }, 502
+    except requests.RequestException as exc:
+        return {
+            "error": "No fue posible comunicarse con Strava.",
+            "details": str(exc),
+        }, 502
+    except Exception as exc:
+        return {
+            "error": "Error inesperado construyendo resumen semanal.",
+            "details": str(exc),
+        }, 500
 
 
 @app.get("/search_vs")
