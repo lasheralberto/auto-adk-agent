@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from openai import OpenAI
+from agent.config.envars import get_secret, get_setting
 
 
 DEFAULT_VECTOR_STORE_NAME = "orchestrator-memory"
@@ -17,8 +18,8 @@ class OpenAIProvider:
         expires_after_days: int | None = None,
         summary_max_chars: int = 700,
     ) -> None:
-        self._api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self._vector_store_id = vector_store_id or os.getenv("VECTOR_STORE_ID")
+        self._api_key = api_key or get_secret("OPENAI_API_KEY")
+        self._vector_store_id = vector_store_id or get_setting("VECTOR_STORE_ID")
         self._expires_after_days = expires_after_days
         self._summary_max_chars = summary_max_chars
 
@@ -82,9 +83,9 @@ class OpenAIProvider:
 
     def _ensure_vector_store(self) -> str:
         client = self._client()
-        vector_store_id = self._vector_store_id or os.getenv("VECTOR_STORE_ID")
+        vector_store_id = self._vector_store_id or get_setting("VECTOR_STORE_ID")
 
-        expires_after_days_raw = str(os.getenv("MEMORY_EXPIRY_DAYS", "")).strip()
+        expires_after_days_raw = str(get_setting("MEMORY_EXPIRY_DAYS", "")).strip()
         env_expiry_days = int(expires_after_days_raw) if expires_after_days_raw.isdigit() else None
         expires_after_days = self._expires_after_days if self._expires_after_days is not None else env_expiry_days
 

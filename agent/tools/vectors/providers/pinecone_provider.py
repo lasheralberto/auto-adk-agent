@@ -1,6 +1,6 @@
-import os
 from datetime import datetime, timezone
 from typing import Any, List, Optional
+from agent.config.envars import get_secret, get_setting
 
 try:
     from pinecone import Pinecone
@@ -17,10 +17,10 @@ class PineconeProvider:
         namespace: Optional[str] = None,
         embedding_model: Optional[str] = None,
     ) -> None:
-        self._api_key = api_key or os.getenv("PINECONE_API_KEY")
-        self._index_name = index_name or os.getenv("PINECONE_INDEX_NAME")
-        self._namespace = namespace or os.getenv("PINECONE_NAMESPACE")
-        self._embedding_model = embedding_model or os.getenv("PINECONE_EMBEDDING_MODEL") 
+        self._api_key = api_key or get_secret("PINECONE_API_KEY")
+        self._index_name = index_name or get_setting("PINECONE_INDEX_NAME")
+        self._namespace = namespace or get_setting("PINECONE_NAMESPACE")
+        self._embedding_model = embedding_model or get_setting("PINECONE_EMBEDDING_MODEL")
 
     def _client(self) -> Pinecone:
         if Pinecone is None:

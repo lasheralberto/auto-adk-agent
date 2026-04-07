@@ -1,7 +1,7 @@
 from __future__ import annotations
-import os
 from typing import Any, Dict, List, Optional
 import langextract as lx
+from agent.config.envars import get_secret, get_setting
 
 
 
@@ -29,8 +29,8 @@ class LangExtractProvider:
         prompt_description: Optional[str] = None,
         examples: Optional[List[Any]] = None,
     ) -> None:
-        self._api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self._model_id = model_id or os.getenv("LANGEXTRACT_MODEL_ID")
+        self._api_key = api_key or get_secret("OPENAI_API_KEY")
+        self._model_id = model_id or get_setting("LANGEXTRACT_MODEL_ID")
         self._prompt = prompt_description or DEFAULT_PROMPT
         self._examples = examples or []
 

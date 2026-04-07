@@ -3,6 +3,7 @@ import re
 from dotenv import load_dotenv
 from google import genai
 from openai import OpenAI
+from agent.config.envars import get_secret, get_setting
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -45,10 +46,10 @@ def generate_script(question: str, model: str | None = None) -> str:
         raise ValueError("question cannot be empty")
 
     load_dotenv()
-    provider = os.getenv("LLM_PROVIDER", "google").lower()
+    provider = str(get_setting("LLM_PROVIDER", "google")).lower()
 
     if provider == "openai":
-        model_name = model or os.getenv("OPENAI_MODEL") or "gpt-5.4"
+        model_name = model or get_setting("OPENAI_MODEL") or "gpt-5.4"
         client = OpenAI()
         response = client.responses.create(
             model=model_name,
@@ -59,9 +60,9 @@ def generate_script(question: str, model: str | None = None) -> str:
     else:
         # Default to google/genai
         os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
-        model_name = model or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+        model_name = model or get_setting("GEMINI_MODEL") or "gemini-2.5-flash"
 
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = get_secret("GOOGLE_API_KEY")
         if api_key:
             os.environ["GEMINI_API_KEY"] = api_key
         client = genai.Client()

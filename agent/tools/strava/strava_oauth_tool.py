@@ -1,7 +1,7 @@
 import json
-import os
 import secrets
 from agent.models.self.strava_rl import StravaData
+from agent.config.envars import get_secret
 
 
 DEFAULT_REDIRECT_URI = 'http://localhost/exchange_token'
@@ -12,7 +12,7 @@ def _resolve_strava_client_id(client_id: int | None = None) -> int:
     if client_id is not None:
         return client_id
 
-    raw_client_id = (os.getenv('STRAVA_CLIENT_ID') or '').strip()
+    raw_client_id = (get_secret('STRAVA_CLIENT_ID') or '').strip()
     if not raw_client_id:
         raise ValueError('STRAVA_CLIENT_ID is not configured in environment')
 
@@ -29,7 +29,7 @@ def _resolve_strava_client_secret(client_secret: str | None = None) -> str:
             raise ValueError('client_secret cannot be empty')
         return resolved_client_secret
 
-    resolved_client_secret = (os.getenv('STRAVA_CLIENT_SECRET') or '').strip()
+    resolved_client_secret = (get_secret('STRAVA_CLIENT_SECRET') or '').strip()
     if not resolved_client_secret:
         raise ValueError('STRAVA_CLIENT_SECRET is not configured in environment')
 

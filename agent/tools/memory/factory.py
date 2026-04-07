@@ -4,6 +4,7 @@ from typing import Any
 
 from agent.tools.memory.interface import IMemoryProvider
 from agent.tools.vectors.providers import ProviderFactory
+from agent.config.envars import get_secret, get_setting
 
 
 _provider_instance: IMemoryProvider | None = None
@@ -35,7 +36,7 @@ def build_memory_provider(
     selected = (
         provider_name
         or _read_setting(settings, "MEMORY_PROVIDER")
-        or os.getenv("MEMORY_PROVIDER")
+        or get_setting("MEMORY_PROVIDER")
         or "inmemory"
     )
     selected = str(selected).strip().lower()
@@ -47,8 +48,8 @@ def build_memory_provider(
 
         if selected in {"openai", "vector", "vector_store"}:
             cfg = {
-                "api_key": _read_setting(settings, "OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"),
-                "vector_store_id": _read_setting(settings, "VECTOR_STORE_ID") or os.getenv("VECTOR_STORE_ID"),
+                "api_key": _read_setting(settings, "OPENAI_API_KEY") or get_secret("OPENAI_API_KEY"),
+                "vector_store_id": _read_setting(settings, "VECTOR_STORE_ID") or get_setting("VECTOR_STORE_ID"),
                 "expires_after_days": _read_setting(settings, "MEMORY_EXPIRY_DAYS"),
             }
             _provider_instance = ProviderFactory.get_provider("openai", cfg)
@@ -56,7 +57,7 @@ def build_memory_provider(
 
         if selected == "redis":
             cfg = {
-                "url": _read_setting(settings, "REDIS_URL") or os.getenv("REDIS_URL")
+                "url": _read_setting(settings, "REDIS_URL") or get_setting("REDIS_URL")
             }
             _provider_instance = ProviderFactory.get_provider("redis", cfg)
             return _provider_instance
@@ -64,7 +65,7 @@ def build_memory_provider(
         if selected == "sqlite":
             cfg = {
                 "db_path": _read_setting(settings, "SQLITE_MEMORY_DB_PATH")
-                or os.getenv("SQLITE_MEMORY_DB_PATH")
+                or get_setting("SQLITE_MEMORY_DB_PATH")
                 or ":memory:",
             }
             _provider_instance = ProviderFactory.get_provider("sqlite", cfg)

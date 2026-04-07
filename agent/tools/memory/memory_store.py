@@ -1,8 +1,8 @@
-import os
 from datetime import datetime, timezone
 from typing import Any
 
 from agent.tools.memory.factory import build_memory_provider
+from agent.config.envars import get_setting
 
 
 DEFAULT_TOP_K = 3
@@ -41,7 +41,7 @@ def retrieve_similar_memories(question: str, top_k: int | None = None) -> list[s
         return []
 
     if top_k is None:
-        top_k_raw = _to_text(os.getenv("MEMORY_TOP_K", str(DEFAULT_TOP_K)))
+        top_k_raw = _to_text(get_setting("MEMORY_TOP_K", str(DEFAULT_TOP_K)))
         top_k = int(top_k_raw) if top_k_raw.isdigit() else DEFAULT_TOP_K
 
     try:
