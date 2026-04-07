@@ -165,6 +165,29 @@ def _parse_chat_request(data: dict) -> tuple[str | None, str | None, str | None,
     return question, llm_provider, model_name, stream, vector_store_id
 
 
+def _normalize_chat_result(result: object) -> dict[str, object]:
+    if isinstance(result, dict):
+        response_text = result.get("response")
+        if response_text is None:
+            response_text = result.get("message")
+        if response_text is None:
+            response_text = result.get("answer")
+
+        tool_calls = result.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            tool_calls = []
+
+        return {
+            "response": str(response_text) if response_text is not None else "",
+            "tool_calls": tool_calls,
+        }
+
+    return {
+        "response": str(result),
+        "tool_calls": [],
+    }
+
+
 @app.post("/chat")
 @app.post("/ask")
 def chat_agent() -> Response | tuple[dict, int]:
@@ -217,9 +240,7 @@ def chat_agent() -> Response | tuple[dict, int]:
             },
         )
 
-    result = asyncio.run(run_agent(augmented_question, orchestrator))
-    if not isinstance(result, dict):
-        result = {"response": str(result)}
+    result = _normalize_chat_result(asyncio.run(run_agent(augmented_question, orchestrator)))
 
     if rag_filenames and isinstance(result, dict):
         result["rag_files"] = rag_filenames
