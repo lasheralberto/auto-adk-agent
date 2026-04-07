@@ -33,15 +33,8 @@ generic_scripts_skill = load_skill_from_dir(_SKILLS_DIR / "script-execution")
 script_generator_skill = load_skill_from_dir(_SKILLS_DIR / "script-generator")
 memory_agent_skill = load_skill_from_dir(_SKILLS_DIR / "memory-agent")
 intent_router_skill = load_skill_from_dir(_SKILLS_DIR / "intent-router")
-<<<<<<< HEAD
 strava_agent_skill = load_skill_from_dir(_SKILLS_DIR / "strava-agent")
 
-=======
-sd_agent_skill = load_skill_from_dir(_SKILLS_DIR / "sd-agent")
-fi_agent_skill = load_skill_from_dir(_SKILLS_DIR / "fi-agent")
-sap_technical_skill = load_skill_from_dir(_SKILLS_DIR / "sap-technical-agent")
-cloudification_skill = load_skill_from_dir(_SKILLS_DIR / "cloudification-agent")
->>>>>>> e72f17c02742dfffd00f7332afb8aea5928227a8
 
 def get_llm_provider(llm_provider: str | None = None, model_name: str | None = None) -> LiteLlm:
     # Prefer the explicit parameter `llm_provider` (used when called from /ask).
@@ -78,12 +71,3 @@ def get_llm_provider(llm_provider: str | None = None, model_name: str | None = N
         raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")
 
     return model
-<<<<<<< HEAD
-=======
-
-
-# Do not call `get_llm_provider()` at import time — the LLM provider and model
-# will be provided at runtime via the request payload. Keep `MODEL` as None
-# to avoid raising on import when no provider is configured in env.
-MODEL = None
->>>>>>> e72f17c02742dfffd00f7332afb8aea5928227a8

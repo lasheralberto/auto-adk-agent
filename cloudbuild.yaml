@@ -1,0 +1,26 @@
+steps:
+  # 1. Construir la imagen Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest', '.']
+
+  # 2. Subir la imagen al repositorio Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest']
+
+  # 3. Desplegar en Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      [
+        'run', 'deploy', 'strava-api',
+        '--image', 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest',
+        '--region', 'europe-west1',
+        '--platform', 'managed',
+        '--allow-unauthenticated'
+      ]
+
+images:
+  - 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

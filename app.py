@@ -1,10 +1,6 @@
 import asyncio
-import json
 import os
-import queue
 import tempfile
-import threading
-from typing import Generator
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -12,8 +8,8 @@ from openai import OpenAI
 
 from agent.app import build_orchestrator
 from agent.runner import run_agent, run_agent_streaming
-from agent.tools.vectors import vector_store, search_vs
-from agent.service.stream_utils import _sse, _stream_generator, _rag_stream_generator
+from agent.tools.vectors import vector_store
+from agent.service.stream_utils import _rag_stream_generator
 
 app = Flask(__name__)
 CORS(app)
@@ -145,50 +141,48 @@ def add_to_vs():
             pass
 
 
-@app.post("/ask")
-def ask_agent() -> Response | tuple[dict, int]:
-    data = request.get_json(silent=True) or {}
-    question = data.get("question")
-    # Support a single llm descriptor like "openai/gpt-4o" in the field `llm_provider`.
-    # If provided, we split by '/' into provider and model_name. Otherwise the
-    # old behavior (separate `llm_provider` and `model` fields) still works.
+def _parse_chat_request(data: dict) -> tuple[str | None, str | None, str | None, bool, str | None]:
+    question = data.get("message") or data.get("question")
     model = data.get("model")
-    llm_param = (data.get("llm_provider") or data.get("llm") or "")
-    print(f"Received ask request with question: {question}, llm_param: {llm_param}, model: {model}")
+    llm_param = (data.get("llm_provider") or data.get("llm") or os.environ.get("LLM_PROVIDER") or os.environ.get("LLM") or "")
     stream_param = data.get("stream", False)
-    
-    # Handle both string ("True"/"False") and boolean values
+
     if isinstance(stream_param, str):
         stream = stream_param.lower() in ("true", "1", "yes")
     else:
         stream = bool(stream_param)
 
-    if not isinstance(question, str) or not question.strip():
-        return {"error": "Field 'question' must be a non-empty string."}, 400
-
-    # Parse llm_param if it contains both provider and model (format: provider/model)
     if isinstance(llm_param, str) and "/" in llm_param:
         parsed_provider, model_from_llm = llm_param.split("/", 1)
         llm_provider = parsed_provider
-        if model_from_llm:
+        if model_from_llm and not model:
             model = model_from_llm.strip()
     else:
         llm_provider = llm_param
 
-    # Validate provider
+    model_name = model.strip() if isinstance(model, str) and model.strip() else None
+    vector_store_id = data.get("vector_store_id")
+    return question, llm_provider, model_name, stream, vector_store_id
+
+
+@app.post("/chat")
+@app.post("/ask")
+def chat_agent() -> Response | tuple[dict, int]:
+    data = request.get_json(silent=True) or {}
+    question, llm_provider, model_name_to_use, stream, vs_id = _parse_chat_request(data)
+
+    print(
+        "Received chat request with question: "
+        f"{question}, llm_provider: {llm_provider}, model: {model_name_to_use}, stream: {stream}"
+    )
+
+    if not isinstance(question, str) or not question.strip():
+        return {"error": "Field 'message' or 'question' must be a non-empty string."}, 400
+
     if not isinstance(llm_provider, str) or not llm_provider.strip():
         return {"error": "Field 'llm_provider' must be a non-empty string (e.g. 'openai/gpt-4o')."}, 400
 
-    # model may be provided separately or via llm_param; pass None to orchestrator if missing
-    model_name_to_use = model.strip() if isinstance(model, str) and model.strip() else None
-
-    # Debug log after parsing
-    print(f"Parsed llm_provider: {llm_provider}, resolved model: {model_name_to_use}")
-
-    vs_id = data.get("vector_store_id")
-
     try:
-        # Búsqueda avanzada en el Vector Store
         rag_info = vector_store.search_vs(question.strip(), vector_store_id=vs_id)
         rag_context = rag_info.get("context", "")
         rag_filenames = rag_info.get("filenames", [])
@@ -202,7 +196,7 @@ def ask_agent() -> Response | tuple[dict, int]:
                 f"{rag_context}\n"
                 f"### FIN DEL CONTEXTO ###\n\n"
                 f"Pregunta del usuario: {question.strip()}\n"
-                f"Responde basándote en el contexto anterior. Si no está la información en el contexto o en tu base de conocimientos general sobre SAP, indícalo educadamente."
+                f"Responde basándote en el contexto anterior. Si no está la información en el contexto o en tu base de conocimientos general sobre Strava y entrenamiento, indícalo educadamente."
             )
 
         orchestrator = build_orchestrator(
@@ -224,12 +218,12 @@ def ask_agent() -> Response | tuple[dict, int]:
         )
 
     result = asyncio.run(run_agent(augmented_question, orchestrator))
-    # In non-streaming, we can prepend a "fake" tool call to the history or metadata if needed, 
-    # but the user asked to show it in the component which usually reacts to tool_calls events.
+    if not isinstance(result, dict):
+        result = {"response": str(result)}
+
     if rag_filenames and isinstance(result, dict):
-        # Si el resultado es un dict, podemos inyectar la info de RAG para que el front la procese
         result["rag_files"] = rag_filenames
-        
+
     return jsonify(result)
 
 
@@ -418,16 +412,7 @@ def delete_vs_file():
     except Exception as e:
         return {"error": str(e)}, 500
 
-async def _run_cli_once() -> None:
-    question = input("Pregunta> ").strip()
-    if not question:
-        print("No se proporciono ninguna pregunta.")
-        return
-
-    orchestrator = build_orchestrator()
-    result = await run_agent(question, orchestrator)
-    print(result.get("response", ""))
-
-
 if __name__ == "__main__":
-    asyncio.run(_run_cli_once())
+    port = int(os.environ.get("PORT", "8080"))
+    debug = os.environ.get("FLASK_DEBUG", "").strip() in {"1", "true", "True"}
+    app.run(host="0.0.0.0", port=port, debug=debug)
