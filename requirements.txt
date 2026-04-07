@@ -9,3 +9,10 @@ openai
 gunicorn
 google-adk
 pinecone==8.1.0
+numpy
+google-genai
+google-cloud-aiplatform
+gymnasium
+llm-sandbox
+langextract
+Werkzeug

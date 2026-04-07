@@ -12,7 +12,7 @@ from agent.tools.vectors import vector_store
 from agent.service.stream_utils import _rag_stream_generator
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://strava-adk-agent-frontend.vercel.app"], supports_credentials=True)
 
 
 @app.get("/health")
