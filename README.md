@@ -1,103 +1,135 @@
-# POC - Agent Chatbot
+# Strava Agent — Backend
 
-## Overview
+A conversational AI backend that lets you interact with your Strava data through natural language. Built on top of [Google ADK](https://github.com/google/adk-python), it exposes the full Strava API as agent-callable tools with OAuth HITL flow, token management, and an optional cycling RL training pipeline.
 
-This repository contains a Proof-of-Concept conversational agent platform (Agent Chatbot) designed for integrating modular skills, memory providers, and execution tools to support multi-agent workflows. It demonstrates an extensible architecture for building task-oriented agents, script execution, memory-backed conversations, and connectors for external services.
+## Features
 
-## Key Features
-
-- Modular skills architecture: each skill is self-contained under `skills/` and implements specific capabilities (answering, code generation, script generation, SAP-related tasks, etc.).
-- Pluggable memory providers: in-memory, Redis, SQLite, and OpenAI-based providers available under `tools/memory/providers/`.
-- Tooling and execution: action/tool modules for script execution, sandboxing, and custom tools located in `tools/`.
-- Agent orchestration: a top-level orchestrator and agent runner to manage conversations and skill routing.
-- Tests: basic unit tests for memory components under `tests/`.
+- **Full Strava API coverage** — athlete profile, activities, segments, clubs, routes, gear, uploads, streams, and GPX/TCX export.
+- **OAuth with Human-in-the-Loop** — guided OAuth2 flow: the agent generates the authorization URL, the user pastes the redirect URL, and the agent exchanges it for tokens automatically.
+- **Token refresh & rotation** — automatic `refresh_token` rotation on every refresh cycle.
+- **Cycling RL training** — optional PPO-based reinforcement learning model trained on real Strava activity data (`train_strava_rl_model`).
+- **Modular skills architecture** — each capability lives in its own skill under `agent/skills/`, making it easy to extend.
+- **Pluggable memory providers** — in-memory, Redis, SQLite, and OpenAI-backed vector store for conversation context.
+- **Multi-LLM support** — Google Gemini (Vertex AI or API key), OpenAI, and any LiteLLM-compatible provider.
+- **GCP-ready** — includes `Dockerfile` and `cloudbuild.yaml` for Cloud Run deployments.
 
 ## Architecture
 
-The system is divided into the following layers:
-
-- API / Entry Points
-  - `app.py` (root) - lightweight entrypoint for running the POC app.
-  - `agent/app.py`, `agent/runner.py` - core agent runtime and runner logic.
-
-- Skills
-  - `skills/` - each folder contains a `SKILL.md` describing the skill, interfaces, and expected prompts.
-
-- Tools & Execution
-  - `tools/` - contains helpers and tool wrappers that the agent can invoke (script execution, sandboxing, memory tools).
-
-- Memory
-  - `tools/memory/` - factory and providers for storing conversation state and embeddings.
-
-Flow summary:
-
-1. Client sends a request to the agent entrypoint.
-2. The orchestrator/runner selects an appropriate skill based on intent routing.
-3. Skills may read/write memory via a provider, call tools, or request script execution.
-4. Results are aggregated and returned to the caller.
-
-Mermaid architecture (visual):
-
 ```mermaid
 flowchart TD
-  Client -->|Request| AgentApp[Agent App]
+  Client -->|HTTP / SSE| AgentApp[agent/app.py]
   AgentApp --> Runner[Runner / Orchestrator]
-  Runner --> Router[Intent Router]
-  Router -->|select| Skill[Skill Modules]
-  Skill --> Memory[Memory Provider]
-  Skill --> Tools[Execution Tools]
-  Tools --> Sandbox[Sandbox / Script Executor]
-  Memory -->|read/write| Storage[(Redis / SQLite / In-Memory)]
-  Sandbox --> External[External Systems]
-  External -->|responses| Skill
-  Skill -->|response| Runner --> Client
+  Runner --> Router[Intent Router skill]
+  Router -->|strava intent| StravaSkill[strava-agent skill]
+  Router -->|code intent| CodeSkill[code-programmer / script-generator]
+  StravaSkill --> StravaTools[Strava API tools]
+  StravaTools -->|OAuth HITL| HITL((User pastes redirect URL))
+  StravaTools -->|REST calls| StravaAPI[api.strava.com]
+  StravaSkill --> RLPipeline[train_strava_rl_model — PPO]
+  Runner --> Memory[Memory Provider]
+  Memory -->|read / write| Storage[(In-Memory / Redis / SQLite)]
+  Runner --> Sandbox[GCP Sandbox — script execution]
 ```
 
 ## Project Structure
 
-- `app.py` - top-level app entrypoint for quick runs.
-- `agent/` - runtime, runner and agent configuration.
-  - `agent/app.py`
-  - `agent/runner.py`
-  - `agent/config/` - runtime configuration
-- `skills/` - modular skills (each has `SKILL.md` documentation)
-- `tools/` - tool implementations and memory adapters
-  - `tools/memory/` - memory factory, interface, providers
-  - other tools: `script_execution_tool.py`, `sandbox_tool.py`, etc.
-- `tests/` - unit tests for memory and core tooling
+```
+app.py                      # Top-level entrypoint (local dev)
+agent/
+  app.py                    # FastAPI application & /ask endpoint
+  runner.py                 # Agent runner logic
+  config/config.py          # LLM provider setup, skill loading
+  skills/
+    strava-agent/           # Core Strava skill (SKILL.md + swagger.json)
+    orchestrator/           # Multi-skill orchestration
+    intent-router/          # Routes user intent to the right skill
+    code-programmer/        # Code generation skill
+    script-generator/       # Script generation skill
+    script-execution/       # Script execution skill
+    answer-agent/           # General Q&A skill
+    memory-agent/           # Memory read/write skill
+  tools/
+    strava/                 # Strava OAuth + API tool wrappers
+    memory/                 # Memory factory, interface, providers
+    sandbox/                # GCP sandbox & script execution tools
+    vectors/                # Vector store providers
+```
 
 ## Getting Started
 
-Prerequisites:
+### Prerequisites
 
-- Python 3.10+ (recommended)
-- (Optional) Redis if you plan to use the Redis memory provider
+- Python 3.10+
+- A Strava API application (get `client_id` and `client_secret` at [strava.com/settings/api](https://www.strava.com/settings/api))
+- Google Cloud project with Vertex AI enabled **or** a `GOOGLE_API_KEY` / `OPENAI_API_KEY`
 
-Install dependencies:
+### Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Run the basic app (POC):
+### Environment variables
+
+Create a `.env` file at the project root:
+
+```env
+# LLM provider — e.g. "google/gemini-2.5-flash" or "openai/gpt-4o"
+LLM_PROVIDER=google/gemini-2.5-flash
+
+# Google / Vertex AI
+GOOGLE_API_KEY=...
+GOOGLE_CLOUD_PROJECT=your-gcp-project
+GOOGLE_CLOUD_LOCATION=us-central1
+
+# Strava (optional — the agent can also ask the user)
+STRAVA_CLIENT_ID=...
+STRAVA_CLIENT_SECRET=...
+
+# Memory provider: inmemory | redis | sqlite
+MEMORY_PROVIDER=inmemory
+REDIS_URL=redis://localhost:6379
+SQLITE_MEMORY_DB_PATH=memory.db
+```
+
+### Run locally
 
 ```bash
 python app.py
 ```
 
-When you run it locally, it will ask for a question in the CLI and send it to the orchestrator.
+The server starts on `http://localhost:8000`. Send requests to `POST /ask` with a JSON body:
 
-Run tests:
+```json
+{
+  "message": "Show me my last 5 Strava activities",
+  "session_id": "my-session"
+}
+```
+
+### Deploy to Cloud Run
 
 ```bash
-python -m pytest tests
+gcloud beta builds submit
 ```
+
+The included `cloudbuild.yaml` and `Dockerfile` handle the build and deployment.
+
+## Strava OAuth Flow
+
+1. Ask the agent to connect your Strava account.
+2. The agent calls `start_strava_oauth` and returns an authorization URL.
+3. Open the URL in your browser and approve the permissions.
+4. Paste the full redirect URL back into the chat.
+5. The agent calls `complete_strava_oauth`, exchanges the code for tokens, and is ready to use the API.
+
+Token refresh happens automatically via `refresh_strava_access_token`. The new `refresh_token` is always reported so you can persist it.
 
 ## Configuration
 
-Configuration values are defined in `agent/config/config.py`. You can switch memory providers and other runtime settings there. Providers include:
+All runtime settings are in `agent/config/config.py`. Memory providers include:
 
-- `in_memory` - fast ephemeral store for testing
+- `inmemory` — fast ephemeral store for local development
 - `redis_provider` - requires Redis server
 - `sqlite_provider` - file-based local DB
 - `openai_provider` - wraps OpenAI for embedding/semantic memory
