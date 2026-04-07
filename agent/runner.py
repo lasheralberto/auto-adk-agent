@@ -9,7 +9,6 @@ from agent.tools.sandbox.script_execution_tool import maybe_execute_matching_scr
 
 APP_NAME = "multi_agent_executor"
 USER_ID = "user1"
-_CODE_EXECUTION_AUTHORS = {"code_programmer", "generic_scripts_agent", "script_generator_agent"}
 _STREAM_CHUNK_SIZE = 180
 
 
@@ -240,8 +239,6 @@ def _extract_tool_output_events(content: object, event: object | None = None) ->
         return []
 
     author = str(_to_plain_value(getattr(event, "author", None)) or "") if event else ""
-    if author not in _CODE_EXECUTION_AUTHORS:
-        return []
 
     outputs: list[dict[str, str]] = []
     for part in content.parts:
@@ -269,6 +266,102 @@ def _extract_tool_output_events(content: object, event: object | None = None) ->
         )
 
     return outputs
+
+
+def _try_parse_json_like(value: object) -> object:
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        return value
+
+    text = value.strip()
+    if not text:
+        return value
+
+    if text[0] not in ("{", "["):
+        return value
+
+    try:
+        return json.loads(text)
+    except Exception:
+        return value
+
+
+def _coerce_score(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except Exception:
+            return None
+    return None
+
+
+def _extract_confidence_score(value: object) -> float | None:
+    parsed = _try_parse_json_like(value)
+
+    direct_score = _coerce_score(parsed)
+    if direct_score is not None:
+        return direct_score
+
+    if isinstance(parsed, dict):
+        for key in ("confidence", "score"):
+            if key in parsed:
+                score_value = _extract_confidence_score(parsed.get(key))
+                if score_value is not None:
+                    return score_value
+
+        for nested in parsed.values():
+            score_value = _extract_confidence_score(nested)
+            if score_value is not None:
+                return score_value
+
+    if isinstance(parsed, list):
+        for item in parsed:
+            score_value = _extract_confidence_score(item)
+            if score_value is not None:
+                return score_value
+
+    return None
+
+
+def _extract_tool_score_events(content: object, event: object | None = None) -> list[dict[str, object]]:
+    if not content or not getattr(content, "parts", None):
+        return []
+
+    author = str(_to_plain_value(getattr(event, "author", None)) or "") if event else ""
+    scores: list[dict[str, object]] = []
+
+    for part in content.parts:
+        function_response = getattr(part, "function_response", None)
+        if not function_response:
+            continue
+
+        tool_name = str(_to_plain_value(getattr(function_response, "name", None)) or "")
+        if tool_name.lower() != "intent_router":
+            continue
+
+        raw_output = (
+            _to_plain_value(getattr(function_response, "response", None))
+            or _to_plain_value(getattr(function_response, "output", None))
+            or _to_plain_value(getattr(function_response, "result", None))
+            or _to_plain_value(getattr(function_response, "content", None))
+        )
+
+        score_value = _extract_confidence_score(raw_output)
+        if score_value is None:
+            continue
+
+        scores.append({
+            "agent": author,
+            "tool": tool_name,
+            "score": score_value,
+        })
+
+    return scores
 
 
 async def _run_once(message_text: str, session_id: str, agent: object) -> dict[str, object]:
@@ -361,8 +454,6 @@ async def run_agent_streaming(question: str, agent: object):
 
         last_full_text = ""
         tool_calls: list[dict[str, object]] = []
-        streamed_tool_outputs: set[tuple[str, str, str]] = set()
-
         async for event in runner.run_async(
             user_id=USER_ID,
             session_id=session_id,
@@ -376,24 +467,15 @@ async def run_agent_streaming(question: str, agent: object):
             if added_calls:
                 payload["tool_calls"] = added_calls
 
-            streamed_messages: list[str] = []
-            for item in _extract_tool_output_events(event.content, event):
-                signature = (item["agent"], item["tool"], item["output"])
-                if signature in streamed_tool_outputs:
-                    continue
-                streamed_tool_outputs.add(signature)
-                streamed_messages.append(
-                    f"[{item['agent']} -> {item['tool']}]\n{item['output']}"
-                )
+            score_events = _extract_tool_score_events(event.content, event)
+            if score_events:
+                payload["score"] = score_events[-1].get("score")
 
             full_text = _extract_text(event.content)
             delta = _extract_delta(full_text, last_full_text)
             if delta:
-                streamed_messages.append(delta)
                 last_full_text = full_text
-
-            if streamed_messages:
-                payload["response"] = "\n\n".join(streamed_messages)
+                payload["response"] = delta
 
             if not payload:
                 continue
@@ -408,6 +490,8 @@ async def run_agent_streaming(question: str, agent: object):
                 chunk_payload: dict[str, object] = {"response": response_chunk}
                 if index == 0 and payload.get("tool_calls"):
                     chunk_payload["tool_calls"] = payload["tool_calls"]
+                if index == 0 and payload.get("score") is not None:
+                    chunk_payload["score"] = payload["score"]
                 yield chunk_payload
 
     got_response = False

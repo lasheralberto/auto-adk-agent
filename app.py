@@ -12,7 +12,7 @@ from openai import OpenAI
 
 from agent.app import build_orchestrator
 from agent.runner import run_agent, run_agent_streaming
-from agent.tools.vectors import vector_store
+from agent.tools.vectors import vector_store, search_vs
 from agent.service.stream_utils import _sse, _stream_generator, _rag_stream_generator
 
 app = Flask(__name__)
@@ -149,8 +149,12 @@ def add_to_vs():
 def ask_agent() -> Response | tuple[dict, int]:
     data = request.get_json(silent=True) or {}
     question = data.get("question")
+    # Support a single llm descriptor like "openai/gpt-4o" in the field `llm_provider`.
+    # If provided, we split by '/' into provider and model_name. Otherwise the
+    # old behavior (separate `llm_provider` and `model` fields) still works.
     model = data.get("model")
-    llm_provider = data.get("llm_provider")
+    llm_param = (data.get("llm_provider") or data.get("llm") or "")
+    print(f"Received ask request with question: {question}, llm_param: {llm_param}, model: {model}")
     stream_param = data.get("stream", False)
     
     # Handle both string ("True"/"False") and boolean values
@@ -162,11 +166,24 @@ def ask_agent() -> Response | tuple[dict, int]:
     if not isinstance(question, str) or not question.strip():
         return {"error": "Field 'question' must be a non-empty string."}, 400
 
-    if not isinstance(model, str) or not model.strip():
-        return {"error": "Field 'model' must be a non-empty string."}, 400
+    # Parse llm_param if it contains both provider and model (format: provider/model)
+    if isinstance(llm_param, str) and "/" in llm_param:
+        parsed_provider, model_from_llm = llm_param.split("/", 1)
+        llm_provider = parsed_provider
+        if model_from_llm:
+            model = model_from_llm.strip()
+    else:
+        llm_provider = llm_param
 
+    # Validate provider
     if not isinstance(llm_provider, str) or not llm_provider.strip():
-        return {"error": "Field 'llm_provider' must be a non-empty string."}, 400
+        return {"error": "Field 'llm_provider' must be a non-empty string (e.g. 'openai/gpt-4o')."}, 400
+
+    # model may be provided separately or via llm_param; pass None to orchestrator if missing
+    model_name_to_use = model.strip() if isinstance(model, str) and model.strip() else None
+
+    # Debug log after parsing
+    print(f"Parsed llm_provider: {llm_provider}, resolved model: {model_name_to_use}")
 
     vs_id = data.get("vector_store_id")
 
@@ -190,7 +207,7 @@ def ask_agent() -> Response | tuple[dict, int]:
 
         orchestrator = build_orchestrator(
             llm_provider=llm_provider.strip().lower(),
-            model_name=model.strip(),
+            model_name=model_name_to_use,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -222,9 +239,7 @@ def search_vs_endpoint(query: str = "all files"):
     Endpoint para listar y buscar archivos en el Vector Store.
     Retorna la estructura de datos compatible con el popover 'Files Context'.
     """
-    from tools.vector_store import search_vs
-    import os
-
+   
     # Realiza la búsqueda para obtener los resultados reales (score, file_id, etc)
     # Por defecto, la función search_vs retorna context y filenames.
     # Necesitamos modificarla o llamar directamente a la lógica de OpenAI para más detalle si se requiere.
@@ -232,7 +247,7 @@ def search_vs_endpoint(query: str = "all files"):
     
     # En un caso real, esto llamaría a vector_stores.search y retornaría el objeto 'data' crudo
     # pero siguiendo el flujo actual del backend:
-    from openai import OpenAI
+ 
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     vs_id = request.args.get("vector_store_id") or os.environ.get("VECTOR_STORE_ID")
     
@@ -247,8 +262,8 @@ def search_vs_endpoint(query: str = "all files"):
         for vs_file in vs_files.data:
             file_details = client.files.retrieve(vs_file.id)
             data_list.append({
-                "id": vs_file.id,
-                "name": file_details.filename,
+                "file_id": vs_file.id,
+                "filename": getattr(file_details, "filename", getattr(file_details, "name", None)),
                 "status": vs_file.status,
                 "created_at": vs_file.created_at,
                 "usage_bytes": vs_file.usage_bytes

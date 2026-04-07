@@ -14,7 +14,14 @@ from agent.config.config import (
     script_generator_skill,
     memory_agent_skill,
     intent_router_skill,
+<<<<<<< HEAD
     strava_agent_skill,
+=======
+    sd_agent_skill,
+    fi_agent_skill,
+    sap_technical_skill,
+    cloudification_skill,
+>>>>>>> e72f17c02742dfffd00f7332afb8aea5928227a8
 )
 from agent.tools.sandbox import (
     generate_script,
@@ -23,6 +30,7 @@ from agent.tools.sandbox import (
     execute_project_script,
     list_project_scripts,
 )
+from agent.tools.mcp.sap_cloudification_tools import build_cloudification_agent
 from agent.tools.memory import retrieve_memory_context, save_interaction_memory
 from agent.tools.strava import (
     create_activity,
@@ -155,6 +163,8 @@ def build_orchestrator(llm_provider: str | None = None, model_name: str | None =
 
     
 
+    cloudification_agent = build_cloudification_agent(model=selected_model, skill=cloudification_skill)
+
     # ─── Answer Agent ────────────────────────────────────────────────────────────
     answer_agent = LlmAgent(
         name="answer_agent",
@@ -180,6 +190,13 @@ def build_orchestrator(llm_provider: str | None = None, model_name: str | None =
         AgentTool(agent=intent_router),
         AgentTool(agent=strava_agent),
         AgentTool(agent=code_programmer),
+<<<<<<< HEAD
+=======
+        AgentTool(agent=sd_agent),          # ← directo al orchestrator
+        AgentTool(agent=fi_agent),          # ← directo al orchestrator
+        AgentTool(agent=sap_technical_agent), # ← directo al orchestrator
+        AgentTool(agent=cloudification_agent), # ← directo al orchestrator
+>>>>>>> e72f17c02742dfffd00f7332afb8aea5928227a8
         AgentTool(agent=answer_agent),      # solo para respuestas generales
         
     ],

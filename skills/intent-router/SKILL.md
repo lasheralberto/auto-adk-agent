@@ -15,17 +15,8 @@ Output contract:
 Decision policy:
 1. Use EARLY_RESPONSE only when a direct conversational answer is sufficient and no tool execution is needed.
 2. Use FULL_EXECUTION when the request may require scripts, code generation, computations, file/data processing, external resource checks, or verifiable execution outputs.
-<<<<<<< HEAD
-3. Use FULL_EXECUTION for Strava OAuth, token exchange, Strava API access, and RL training or prediction requests.
-4. Use FULL_EXECUTION for domain-specialist SAP questions (SD, FI, SAP technical topics such as ABAP/Fiori/BTP/integration/performance), even if they look purely informational.
-5. If uncertain, choose FULL_EXECUTION.
-6. Do not call tools.
-7. Do not include markdown or extra text.
-8. Keep reason very short.
-=======
-3. Use FULL_EXECUTION for domain-specialist SAP questions (SD, FI, SAP technical topics such as ABAP/Fiori/BTP/integration/performance, Clean Core, Cloudification, or object release status), even if they look purely informational.
+3. Use FULL_EXECUTION for domain-specialist SAP questions (SD, FI, SAP technical topics such as ABAP/Fiori/BTP/integration/performance), even if they look purely informational.
 4. If uncertain, choose FULL_EXECUTION.
 5. Do not call tools.
 6. Do not include markdown or extra text.
 7. Keep reason very short.
->>>>>>> e72f17c02742dfffd00f7332afb8aea5928227a8

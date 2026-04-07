@@ -2,7 +2,10 @@ import os
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from pinecone import Pinecone
+try:
+    from pinecone import Pinecone
+except Exception:
+    Pinecone = None
 
 
 
@@ -20,6 +23,10 @@ class PineconeProvider:
         self._embedding_model = embedding_model or os.getenv("PINECONE_EMBEDDING_MODEL") 
 
     def _client(self) -> Pinecone:
+        if Pinecone is None:
+            raise ImportError(
+                "Pinecone SDK is not installed. Install the package 'pinecone-client' (e.g. add to requirements.txt and pip install)."
+            )
         return Pinecone(api_key=self._api_key)
 
     def _get_index(self):
