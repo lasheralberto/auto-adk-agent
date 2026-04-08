@@ -8,7 +8,7 @@ litellm
 openai
 gunicorn
 google-adk
-pinecone==8.1.0
+rank-bm25
 numpy
 google-genai
 google-cloud-aiplatform

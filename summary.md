@@ -1,5 +1,146 @@
 # Arquitectura v2: guia de endpoints
 
+## Esquema tecnico del proceso
+
+### Vision general
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        FRONTEND / CLIENTE                        │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ HTTP / SSE
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    FastAPI (agent/app.py)                        │
+│  /auth/*   /pipeline/*   /chat   /ask   /athletes   /health     │
+└────┬───────────────┬─────────────────┬───────────────────────────┘
+     │               │                 │
+     ▼               ▼                 ▼
+┌─────────┐  ┌──────────────┐  ┌──────────────────────────────┐
+│  OAuth  │  │   Pipeline   │  │     Orquestador de Chat       │
+│  Flow   │  │   Runner     │  │  (plan_react_v1 / structured) │
+└────┬────┘  └──────┬───────┘  └──────────────┬───────────────┘
+     │              │                          │
+     ▼              ▼                          ▼
+┌──────────┐ ┌───────────────────────┐  ┌───────────────┐
+│  Strava  │ │  Pipeline por etapas  │  │ Intent Router │
+│  OAuth2  │ │  (secuencial)         │  └───────┬───────┘
+│  API     │ └──────────┬────────────┘          │
+└──────────┘            │              ┌─────────┴──────────┐
+                        │              │                    │
+                        ▼              ▼                    ▼
+              ┌─────────────────┐ EARLY_RESPONSE    FULL_EXECUTION
+              │   6 etapas:     │  (conversacional)  (con tools)
+              │  1. ingestion   │
+              │  2. activity_   │
+              │     analysis    │
+              │  3. daily_      │
+              │     summary     │
+              │  4. performance_│
+              │     insight     │
+              │  5. wiki_       │
+              │     builder     │
+              │  6. embedding   │
+              └────────┬────────┘
+                       │
+          ┌────────────┼────────────┐
+          ▼                    ▼
+   ┌────────────┐    ┌──────────────────────┐
+   │  Firestore │    │        GCS           │
+   │  (estado / │    │  (storage raw, docs, │
+   │  atletas)  │    │   wiki, indice local)│
+   └────────────┘    └──────────────────────┘
+```
+
+### Flujo detallado: Pipeline diario
+
+```
+POST /pipeline/daily
+        │
+        ▼
+ Resolver athlete_ids
+ (body → Firestore)
+        │
+        ▼
+┌───────────────────────────────────────────────────────┐
+│  Por cada atleta:                                     │
+│                                                       │
+│  [1] ingestion-agent                                  │
+│      └─ Strava API → actividades raw → GCS            │
+│                                                       │
+│  [2] activity-analysis-agent                          │
+│      └─ raw GCS → métricas derivadas → GCS            │
+│                                                       │
+│  [3] daily-summary-agent                              │
+│      └─ métricas → resumen diario → GCS               │
+│                                                       │
+│  [4] performance-insight-agent                        │
+│      └─ ventana N días → insights → GCS               │
+│                                                       │
+│  [5] wiki-builder-agent                               │
+│      └─ docs GCS → wiki Markdown → GCS               │
+│                                                       │
+│  [6] embedding-agent                                  │
+│      └─ wiki/docs → indice local JSON → GCS            │
+│                                                       │
+│  Estado de cada etapa → Firestore                     │
+└───────────────────────────────────────────────────────┘
+```
+
+### Flujo detallado: Chat con RAG
+
+```
+POST /chat  {message, athlete_id, llm_provider, ...}
+        │
+        ▼
+ Intent Router
+  ├─ EARLY_RESPONSE ──► respuesta directa LLM
+  └─ FULL_EXECUTION
+        │
+        ▼
+ Query Layer (run_query_layer)
+  └─ question → busqueda lexica → indice local top-k → contexto
+        │
+        ▼
+ Orquestador (plan_react_v1 | structured | plain)
+  └─ contexto RAG + mensaje → LLM → respuesta
+        │
+        ▼
+ Respuesta (JSON o SSE si stream=true)
+  {response, tool_calls, retrieval_hits, structured}
+```
+
+### Flujo detallado: OAuth Strava
+
+```
+GET /auth/strava/start?redirect_uri=...
+        │
+        └─► genera state (TTL 10min) → devuelve auth_url
+                    │
+                    ▼ (usuario aprueba en Strava)
+POST /auth/strava/exchange  {code, state, redirect_uri}
+        │
+        └─► valida state → intercambia code en Strava API
+            → guarda tokens por athlete_id (Firestore)
+            → devuelve access_token + athlete
+
+POST /auth/strava/refresh  {refresh_token}
+        │
+        └─► renueva token → actualiza Firestore → devuelve nuevo access_token
+```
+
+### Componentes de infraestructura
+
+| Componente | Tecnologia | Uso |
+|---|---|---|
+| Backend API | FastAPI (Python) | Endpoints HTTP/SSE |
+| Orquestacion LLM | Google ADK / LiteLLM | Multi-provider (Gemini, OpenAI, etc.) |
+| Estado / atletas | Firestore | Tokens, sync status, pipeline runs |
+| Storage de documentos | GCS | Actividades raw, analisis, wiki |
+| Despliegue | Cloud Run (Docker) | Produccion GCP |
+
+
+
 Este documento esta orientado a uso operativo: que hace cada endpoint, que enviar y que esperar.
 
 ## URL base
@@ -329,10 +470,6 @@ Debes migrar a:
 - FIRESTORE_PIPELINE_RUNS_COLLECTION
 - GCS_KNOWLEDGE_BUCKET o STRAVA_KNOWLEDGE_BUCKET
 - LOCAL_KNOWLEDGE_ROOT
-- PINECONE_API_KEY
-- PINECONE_INDEX_NAME
-- PINECONE_EMBEDDING_MODEL
-- PINECONE_NAMESPACE
 - GOOGLE_CLOUD_PROJECT
 - GOOGLE_CLOUD_LOCATION
 - CORS_ALLOWED_ORIGINS

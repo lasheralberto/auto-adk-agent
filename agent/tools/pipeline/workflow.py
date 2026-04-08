@@ -13,10 +13,9 @@ import requests
 from .storage_backend import ArtifactStore, AthleteStateStore, utc_now_iso
 
 try:
-    from pinecone import Pinecone
+    from rank_bm25 import BM25Okapi as _BM25Okapi
 except Exception:  # noqa: BLE001
-    Pinecone = None
-
+    _BM25Okapi = None
 
 _STRAVA_API_BASE_URL = "https://www.strava.com/api/v3"
 _MAX_SYNC_PAGES = 10
@@ -310,23 +309,6 @@ def _date_range(end_date: str, window_days: int) -> list[str]:
         (end - timedelta(days=offset)).isoformat()
         for offset in range(max(0, window_days - 1), -1, -1)
     ]
-
-
-def _pinecone_context() -> tuple[Any, Any, str, str] | None:
-    api_key = (os.environ.get("PINECONE_API_KEY") or "").strip()
-    index_name = (os.environ.get("PINECONE_INDEX_NAME") or "").strip()
-    embedding_model = (os.environ.get("PINECONE_EMBEDDING_MODEL") or "").strip()
-    namespace = (os.environ.get("PINECONE_NAMESPACE") or "strava-knowledge").strip()
-
-    if not api_key or not index_name or not embedding_model or Pinecone is None:
-        return None
-
-    try:
-        client = Pinecone(api_key=api_key)
-        index = client.Index(index_name)
-        return client, index, embedding_model, namespace
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def _chunk_text(text: str, max_chars: int = 900) -> list[str]:
@@ -806,73 +788,6 @@ def run_wiki_builder(
     return report
 
 
-def _upsert_documents_pinecone(
-    athlete_id: int,
-    target_date: str,
-    documents: list[dict[str, str]],
-) -> tuple[int, str]:
-    context = _pinecone_context()
-    if context is None:
-        return 0, ""
-
-    client, index, model, namespace = context
-    del client
-
-    texts: list[str] = []
-    vector_inputs: list[tuple[str, str, str, str]] = []
-    snapshot_id = f"{target_date}-{_compact_timestamp()}"
-
-    for doc in documents:
-        doc_type = doc.get("type", "document")
-        source_path = doc.get("source_path", "")
-        content = doc.get("content", "")
-        chunks = _chunk_text(content)
-
-        for chunk_index, chunk in enumerate(chunks):
-            digest = hashlib.sha1(
-                f"{athlete_id}:{doc_type}:{source_path}:{chunk_index}:{chunk}".encode("utf-8")
-            ).hexdigest()[:24]
-            vector_id = f"{athlete_id}:{doc_type}:{target_date}:{digest}"
-            vector_inputs.append((vector_id, doc_type, source_path, chunk))
-            texts.append(chunk)
-
-    if not texts:
-        return 0, namespace
-
-    embedding_response = index = None
-    context = _pinecone_context()
-    if context is None:
-        return 0, ""
-    client, index, model, namespace = context
-
-    embedding_response = client.inference.embed(
-        model=model,
-        inputs=texts,
-        parameters={"input_type": "passage", "truncate": "END"},
-    )
-    embeddings = [item.values for item in embedding_response.data]
-
-    vectors: list[dict[str, Any]] = []
-    for idx, vector_meta in enumerate(vector_inputs):
-        vector_id, doc_type, source_path, chunk_text = vector_meta
-        vectors.append(
-            {
-                "id": vector_id,
-                "values": embeddings[idx],
-                "metadata": {
-                    "athlete_id": str(athlete_id),
-                    "date": target_date,
-                    "type": doc_type,
-                    "source_path": source_path,
-                    "snapshot_id": snapshot_id,
-                    "text": chunk_text[:1800],
-                },
-            }
-        )
-
-    index.upsert(vectors=vectors, namespace=namespace)
-    return len(vectors), namespace
-
 
 def run_embedding_index(
     athlete_ids_csv: str = "",
@@ -938,36 +853,24 @@ def run_embedding_index(
             )
             continue
 
-        upserted_vectors, namespace = _upsert_documents_pinecone(athlete_id, day, documents)
+        local_path = f"index/athletes/{athlete_id}/{day}.json"
+        artifact_store.write_json(
+            local_path,
+            {
+                "athlete_id": athlete_id,
+                "date": day,
+                "documents": documents,
+                "created_at": utc_now_iso(),
+            },
+        )
 
-        if upserted_vectors == 0:
-            local_path = f"index/athletes/{athlete_id}/{day}.json"
-            artifact_store.write_json(
-                local_path,
-                {
-                    "athlete_id": athlete_id,
-                    "date": day,
-                    "documents": documents,
-                    "created_at": utc_now_iso(),
-                },
-            )
-            report["athletes"].append(
-                {
-                    "athlete_id": athlete_id,
-                    "status": "local_fallback",
-                    "vectors_upserted": 0,
-                    "local_index_path": local_path,
-                }
-            )
-        else:
-            report["athletes"].append(
-                {
-                    "athlete_id": athlete_id,
-                    "status": "indexed",
-                    "vectors_upserted": upserted_vectors,
-                    "namespace": namespace,
-                }
-            )
+        report["athletes"].append(
+            {
+                "athlete_id": athlete_id,
+                "status": "indexed",
+                "local_index_path": local_path,
+            }
+        )
 
         state_store.set_last_indexed_date(athlete_id, day)
 
@@ -982,9 +885,10 @@ def _query_local_index(
     top_k: int,
 ) -> list[dict[str, Any]]:
     paths = artifact_store.list_paths(f"index/athletes/{athlete_id}/", suffix=".json")
-    tokens = _tokenize(question)
 
-    hits: list[dict[str, Any]] = []
+    docs_meta: list[dict[str, Any]] = []
+    tokenized_corpus: list[list[str]] = []
+
     for path in paths:
         payload = artifact_store.read_json(path)
         if not isinstance(payload, dict):
@@ -992,24 +896,44 @@ def _query_local_index(
         documents = payload.get("documents")
         if not isinstance(documents, list):
             continue
-
         for doc in documents:
             if not isinstance(doc, dict):
                 continue
-            content = str(doc.get("content") or "")
-            overlap = len(tokens.intersection(_tokenize(content)))
-            if overlap <= 0:
+            content = str(doc.get("content") or "").strip()
+            if not content:
                 continue
-            hits.append(
+            docs_meta.append(
                 {
-                    "score": float(overlap),
                     "type": str(doc.get("type") or "document"),
                     "source_path": str(doc.get("source_path") or path),
                     "text": content[:1500],
                 }
             )
+            tokenized_corpus.append(list(_tokenize(content)))
 
-    hits.sort(key=lambda item: item.get("score", 0.0), reverse=True)
+    if not docs_meta:
+        return []
+
+    query_tokens = list(_tokenize(question))
+
+    if _BM25Okapi is not None and query_tokens and tokenized_corpus:
+        bm25 = _BM25Okapi(tokenized_corpus)
+        scores = bm25.get_scores(query_tokens)
+        ranked = sorted(
+            ((float(scores[i]), docs_meta[i]) for i in range(len(docs_meta)) if scores[i] > 0),
+            key=lambda x: x[0],
+            reverse=True,
+        )
+        return [{"score": s, **m} for s, m in ranked[: max(1, int(top_k))]]
+
+    # fallback: token overlap
+    query_set = set(query_tokens)
+    hits = [
+        {"score": float(len(query_set & set(tokenized_corpus[i]))), **docs_meta[i]}
+        for i in range(len(docs_meta))
+        if query_set & set(tokenized_corpus[i])
+    ]
+    hits.sort(key=lambda x: x["score"], reverse=True)
     return hits[: max(1, int(top_k))]
 
 
@@ -1020,114 +944,24 @@ def run_query_layer(
     target_date: str = "",
 ) -> dict[str, Any]:
     normalized_top_k = max(1, int(top_k))
-    context = _pinecone_context()
     normalized_target_date = target_date.strip() if isinstance(target_date, str) else ""
 
-    if context is None:
-        artifact_store = ArtifactStore()
-        local_hits = _query_local_index(artifact_store, athlete_id, question, normalized_top_k)
-        context_text = "\n\n".join(
-            [
-                f"[{hit.get('type')}] {hit.get('text', '')}"
-                for hit in local_hits
-            ]
-        )
-        return {
-            "mode": "local",
-            "athlete_id": athlete_id,
-            "hits": local_hits,
-            "context": context_text,
-            "target_date": _normalize_date(normalized_target_date),
-        }
-
-    client, index, model, namespace = context
-    del index
-
-    date_filter = _normalize_date(normalized_target_date) if normalized_target_date else ""
-    metadata_filter: dict[str, Any] = {"athlete_id": {"$eq": str(athlete_id)}}
-    if date_filter:
-        metadata_filter["date"] = {"$eq": date_filter}
-
-    query_embedding_response = client.inference.embed(
-        model=model,
-        inputs=[question],
-        parameters={"input_type": "query", "truncate": "END"},
-    )
-    query_vector = query_embedding_response.data[0].values
-
-    context = _pinecone_context()
-    if context is None:
-        return {
-            "mode": "none",
-            "athlete_id": athlete_id,
-            "hits": [],
-            "context": "",
-            "target_date": date_filter,
-        }
-
-    _, index, _, namespace = context
-
-    try:
-        query_response = index.query(
-            vector=query_vector,
-            top_k=normalized_top_k,
-            include_metadata=True,
-            namespace=namespace,
-            filter=metadata_filter,
-        )
-    except TypeError:
-        query_response = index.query(
-            queries=[query_vector],
-            top_k=normalized_top_k,
-            include_metadata=True,
-            namespace=namespace,
-            filter=metadata_filter,
-        )
-
-    matches = getattr(query_response, "matches", None)
-    if matches is None and isinstance(query_response, dict):
-        matches = query_response.get("matches")
-    if matches is None:
-        matches = []
-
-    hits: list[dict[str, Any]] = []
-    for match in matches:
-        metadata = getattr(match, "metadata", None)
-        if metadata is None and isinstance(match, dict):
-            metadata = match.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-
-        score = getattr(match, "score", None)
-        if score is None and isinstance(match, dict):
-            score = match.get("score")
-
-        text = str(metadata.get("text") or "")
-        hits.append(
-            {
-                "score": _safe_float(score, 0.0),
-                "type": str(metadata.get("type") or "document"),
-                "source_path": str(metadata.get("source_path") or ""),
-                "date": str(metadata.get("date") or ""),
-                "text": text,
-            }
-        )
-
+    artifact_store = ArtifactStore()
+    hits = _query_local_index(artifact_store, athlete_id, question, normalized_top_k)
     context_text = "\n\n".join(
         [
-            f"[{item.get('type')}] {item.get('text', '')}"
-            for item in hits
-            if str(item.get("text", "")).strip()
+            f"[{hit.get('type')}] {hit.get('text', '')}"
+            for hit in hits
+            if str(hit.get("text", "")).strip()
         ]
     )
 
     return {
-        "mode": "pinecone",
+        "mode": "local",
         "athlete_id": athlete_id,
         "hits": hits,
         "context": context_text,
-        "target_date": date_filter,
-        "namespace": namespace,
+        "target_date": _normalize_date(normalized_target_date),
     }
 
 

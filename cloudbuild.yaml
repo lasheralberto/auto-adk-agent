@@ -1,24 +1,46 @@
-steps:
-  # 1. Construir la imagen Docker
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest', '.']
+substitutions:
+  _LLM_PROVIDER: openai
+  _GEMINI_MODEL: gemini-2.5-flash
+  _SANDBOX_DISPLAY_NAME: Sandbox-cuviv-489714
+  _AGENT_ENGINE_DISPLAY_NAME: cuviv-489714-agent-engine
+  _LOCATION: us-central1
+  _OPENAI_MODEL: gpt-5-mini
+  _VECTOR_STORE_ID: vs_69b028cd6e688191b019b0bf47f1813e
+  _STRAVA_CLIENT_ID: "71744"
+  _USE_FIRESTORE_STATE: "true"
+  _FIRESTORE_ATHLETES_COLLECTION: athletes
+  _FIRESTORE_PIPELINE_RUNS_COLLECTION: pipeline_runs
+  _GCS_KNOWLEDGE_BUCKET: adk-kb-bucket
+  _STRAVA_KNOWLEDGE_BUCKET: adk-strava-kb-bucket
+  _LOCAL_KNOWLEDGE_ROOT: .knowledge_data
 
-  # 2. Subir la imagen al repositorio Artifact Registry
+steps:
+  # 1. Construir la imagen Docker (sin variables — se inyectan en runtime)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest'
+      - '.'
+
+  # 2. Subir la imagen al Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest']
 
   # 3. Desplegar en Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+    entrypoint: bash
     args:
-      [
-        'run', 'deploy', 'strava-api',
-        '--image', 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest',
-        '--region', 'europe-west1',
-        '--platform', 'managed',
-        '--memory', '2Gi',
-        '--allow-unauthenticated'
-      ]
+      - '-c'
+      - |
+        gcloud run deploy strava-api \
+          --image europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest \
+          --region europe-west1 \
+          --platform managed \
+          --memory 2Gi \
+          --allow-unauthenticated \
+          --set-env-vars "LLM_PROVIDER=$_LLM_PROVIDER,GEMINI_MODEL=$_GEMINI_MODEL,SANDBOX_DISPLAY_NAME=$_SANDBOX_DISPLAY_NAME,AGENT_ENGINE_DISPLAY_NAME=$_AGENT_ENGINE_DISPLAY_NAME,PROJECT_ID=$PROJECT_ID,LOCATION=$_LOCATION,OPENAI_MODEL=$_OPENAI_MODEL,VECTOR_STORE_ID=$_VECTOR_STORE_ID,STRAVA_CLIENT_ID=$_STRAVA_CLIENT_ID,USE_FIRESTORE_STATE=$_USE_FIRESTORE_STATE,FIRESTORE_ATHLETES_COLLECTION=$_FIRESTORE_ATHLETES_COLLECTION,FIRESTORE_PIPELINE_RUNS_COLLECTION=$_FIRESTORE_PIPELINE_RUNS_COLLECTION,GCS_KNOWLEDGE_BUCKET=$_GCS_KNOWLEDGE_BUCKET,STRAVA_KNOWLEDGE_BUCKET=$_STRAVA_KNOWLEDGE_BUCKET,LOCAL_KNOWLEDGE_ROOT=$_LOCAL_KNOWLEDGE_ROOT" \
+          --set-secrets "GOOGLE_API_KEY=GOOGLE_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,STRAVA_CLIENT_SECRET=STRAVA_CLIENT_SECRET:latest,STRAVA_OAUTH_STATE_SECRET=STRAVA_OAUTH_STATE_SECRET:latest,INTERNAL_PIPELINE_TOKEN=INTERNAL_PIPELINE_TOKEN:latest"
 
 images:
   - 'europe-west1-docker.pkg.dev/strava-chat/strava-srv/strava-api:latest'

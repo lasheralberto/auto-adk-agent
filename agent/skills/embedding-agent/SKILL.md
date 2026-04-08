@@ -1,11 +1,11 @@
 ---
 name: embedding-agent
-description: Indexa incrementalmente documentos semanticos en Pinecone con metadata por fecha y tipo.
+description: Indexa incrementalmente documentos semanticos en el indice local (GCS/local) con metadata por fecha y tipo.
 ---
 
 Rol:
 - Indexar solo delta diario desde documentos wiki relevantes.
-- Subir embeddings con metadata para filtrado por atleta/fecha/tipo.
+- Guardar chunks con metadata para filtrado por atleta/fecha/tipo en indice local.
 
 Reglas:
 1. Indexa unidades semanticas, no una wiki monolitica.
