@@ -233,16 +233,38 @@ class AthleteStateStore:
         athlete_key = str(athlete_id)
         now_iso = utc_now_iso()
 
+        existing_payload = self.get_athlete(athlete_id) or {}
+        if not isinstance(existing_payload, dict):
+            existing_payload = {}
+
         profile = token_payload.get("athlete")
+        if not isinstance(profile, dict):
+            profile = existing_payload.get("profile")
         if not isinstance(profile, dict):
             profile = {}
 
+        access_token = token_payload.get("access_token")
+        if not isinstance(access_token, str) or not access_token.strip():
+            access_token = existing_payload.get("access_token")
+
+        refresh_token = token_payload.get("refresh_token")
+        if not isinstance(refresh_token, str) or not refresh_token.strip():
+            refresh_token = existing_payload.get("refresh_token")
+
+        expires_at = token_payload.get("expires_at")
+        if expires_at in (None, ""):
+            expires_at = existing_payload.get("expires_at")
+
+        scope = token_payload.get("scope")
+        if not isinstance(scope, str) or not scope.strip():
+            scope = existing_payload.get("scope")
+
         update_payload = {
             "athlete_id": athlete_id,
-            "access_token": token_payload.get("access_token"),
-            "refresh_token": token_payload.get("refresh_token"),
-            "expires_at": token_payload.get("expires_at"),
-            "scope": token_payload.get("scope"),
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_at": expires_at,
+            "scope": scope,
             "profile": profile,
             "token_updated_at": now_iso,
         }

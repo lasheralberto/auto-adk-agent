@@ -374,7 +374,7 @@ class StravaData:
     @staticmethod
     def exchange_authorization_code(client_id: int, client_secret: str, code: str) -> dict:
         response = requests.post(
-            url='https://www.strava.com/oauth/token',
+            url='https://www.strava.com/api/v3/oauth/token',
             data={
                 'client_id': client_id,
                 'client_secret': client_secret,
@@ -389,7 +389,7 @@ class StravaData:
     @staticmethod
     def refresh_access_token(client_id: int, client_secret: str, refresh_token: str) -> dict:
         response = requests.post(
-            url='https://www.strava.com/oauth/token',
+            url='https://www.strava.com/api/v3/oauth/token',
             data={
                 'client_id': client_id,
                 'client_secret': client_secret,

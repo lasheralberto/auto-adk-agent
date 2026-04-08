@@ -1,14 +1,22 @@
 import asyncio
+import base64
+import hashlib
+import hmac
+import json
 import os
-import threading
+import secrets
 import time
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
+
+_BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=_BASE_DIR / ".env", override=False)
 
 from agent.app import build_orchestrator
 from agent.runner import run_agent, run_agent_streaming
@@ -24,8 +32,6 @@ from agent.tools.pipeline import (
     run_wiki_builder,
 )
 from agent.tools.pipeline.storage_backend import AthleteStateStore
-
-load_dotenv()
 
 app = Flask(__name__)
 
@@ -43,8 +49,25 @@ allowed_origins = _configured_origins or _DEFAULT_ALLOWED_ORIGINS
 CORS(app, origins=allowed_origins, supports_credentials=True)
 
 _STRAVA_STATE_TTL_SECONDS = 600
-_strava_oauth_state_cache: dict[str, float] = {}
-_strava_oauth_lock = threading.Lock()
+_DEFAULT_STRAVA_SCOPE = "read,activity:read_all,profile:read_all"
+_STRAVA_TOKEN_URL = "https://www.strava.com/api/v3/oauth/token"
+_ALLOWED_STRAVA_SCOPES = {
+    "read",
+    "read_all",
+    "profile:read_all",
+    "profile:write",
+    "activity:read",
+    "activity:read_all",
+    "activity:write",
+}
+_DEFAULT_STRAVA_ALLOWED_REDIRECT_URIS = [
+    "https://strava-adk-agent-frontend.vercel.app/",
+    "https://strava-adk-agent-frontend.vercel.app/auth/strava/callback",
+    "http://localhost:5173/",
+    "http://localhost:5173/auth/strava/callback",
+    "http://127.0.0.1:5173/",
+    "http://127.0.0.1:5173/auth/strava/callback",
+]
 
 
 def _to_int(value: Any, default: int = 0) -> int:
@@ -115,29 +138,165 @@ def _parse_athlete_ids_csv(data: dict[str, Any]) -> str:
     return ""
 
 
-def _prune_expired_oauth_states() -> None:
-    now = time.time()
-    with _strava_oauth_lock:
-        expired_states = [
-            state
-            for state, created_at in _strava_oauth_state_cache.items()
-            if now - created_at > _STRAVA_STATE_TTL_SECONDS
-        ]
-        for state in expired_states:
-            _strava_oauth_state_cache.pop(state, None)
+def _normalize_redirect_uri(value: str) -> str:
+    raw_value = value.strip()
+    if not raw_value:
+        return ""
+
+    parsed = urlparse(raw_value)
+    if parsed.scheme.lower() not in {"https", "http"}:
+        return ""
+    if not parsed.netloc:
+        return ""
+    if parsed.fragment:
+        return ""
+
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return ""
+
+    scheme = parsed.scheme.lower()
+    if scheme == "http" and host not in {"localhost", "127.0.0.1"}:
+        return ""
+
+    port = f":{parsed.port}" if parsed.port else ""
+    path = parsed.path or "/"
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+    query = f"?{parsed.query}" if parsed.query else ""
+
+    return f"{scheme}://{host}{port}{path}{query}"
+
+
+def _allowed_strava_redirect_uris() -> set[str]:
+    configured_redirect_uris = [
+        candidate.strip()
+        for candidate in (os.environ.get("STRAVA_ALLOWED_REDIRECT_URIS") or "").split(",")
+        if candidate.strip()
+    ]
+    source = configured_redirect_uris or _DEFAULT_STRAVA_ALLOWED_REDIRECT_URIS
+
+    allowed: set[str] = set()
+    for redirect_uri in source:
+        normalized = _normalize_redirect_uri(redirect_uri)
+        if normalized:
+            allowed.add(normalized)
+    return allowed
+
+
+def _is_allowed_redirect_uri(redirect_uri: str) -> bool:
+    return redirect_uri in _allowed_strava_redirect_uris()
+
+
+def _normalize_requested_strava_scope(scope: str, *, default_when_empty: bool = True) -> str:
+    requested = [item.strip() for item in scope.split(",") if item.strip()]
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for item in requested:
+        if item not in _ALLOWED_STRAVA_SCOPES or item in seen:
+            continue
+        normalized.append(item)
+        seen.add(item)
+
+    if not normalized and default_when_empty:
+        return _DEFAULT_STRAVA_SCOPE
+
+    if not normalized:
+        return ""
+
+    return ",".join(normalized)
+
+
+def _state_b64encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _state_b64decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}")
+
+
+def _get_strava_state_secret() -> str:
+    configured_secret = (os.environ.get("STRAVA_OAUTH_STATE_SECRET") or "").strip()
+    if configured_secret:
+        return configured_secret
+    return _get_strava_client_secret()
+
+
+def _create_strava_oauth_state(redirect_uri: str) -> str:
+    payload = {
+        "iat": int(time.time()),
+        "nonce": secrets.token_urlsafe(24),
+        "redirect_uri": redirect_uri,
+    }
+    payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+    secret_bytes = _get_strava_state_secret().encode("utf-8")
+    signature = hmac.new(secret_bytes, payload_bytes, hashlib.sha256).digest()
+    return f"{_state_b64encode(payload_bytes)}.{_state_b64encode(signature)}"
+
+
+def _validate_strava_oauth_state(state: str, redirect_uri: str) -> tuple[bool, str]:
+    parts = state.split(".")
+    if len(parts) != 2:
+        return False, "Invalid OAuth state format. Please login again."
+
+    payload_segment, signature_segment = parts
+    try:
+        payload_bytes = _state_b64decode(payload_segment)
+        provided_signature = _state_b64decode(signature_segment)
+    except Exception:  # noqa: BLE001
+        return False, "Invalid OAuth state encoding. Please login again."
+
+    secret_bytes = _get_strava_state_secret().encode("utf-8")
+    expected_signature = hmac.new(secret_bytes, payload_bytes, hashlib.sha256).digest()
+    if not hmac.compare_digest(provided_signature, expected_signature):
+        return False, "Invalid OAuth state signature. Please login again."
+
+    try:
+        payload = json.loads(payload_bytes.decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return False, "Invalid OAuth state payload. Please login again."
+
+    if not isinstance(payload, dict):
+        return False, "Invalid OAuth state payload. Please login again."
+
+    state_redirect_uri = _normalize_redirect_uri(str(payload.get("redirect_uri") or ""))
+    if state_redirect_uri != redirect_uri:
+        return False, "OAuth state does not match redirect_uri. Please login again."
+
+    issued_at = _to_optional_int(payload.get("iat"))
+    if issued_at is None:
+        return False, "Invalid OAuth state timestamp. Please login again."
+
+    now = int(time.time())
+    if issued_at > now + 60:
+        return False, "Invalid OAuth state timestamp. Please login again."
+    if now - issued_at > _STRAVA_STATE_TTL_SECONDS:
+        return False, "Invalid or expired OAuth state. Please login again."
+
+    nonce = payload.get("nonce")
+    if not isinstance(nonce, str) or len(nonce) < 16:
+        return False, "Invalid OAuth state nonce. Please login again."
+
+    return True, ""
 
 
 def _build_strava_auth_url(client_id: int, redirect_uri: str, scope: str, state: str) -> str:
-    query = urlencode(
-        {
-            "client_id": client_id,
-            "response_type": "code",
-            "redirect_uri": redirect_uri,
-            "scope": scope,
-            "state": state,
-            "approval_prompt": "force",
-        }
-    )
+    query_payload: dict[str, Any] = {
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "state": state,
+    }
+
+    approval_prompt = (os.environ.get("STRAVA_APPROVAL_PROMPT") or "").strip().lower()
+    if approval_prompt in {"auto", "force"}:
+        query_payload["approval_prompt"] = approval_prompt
+
+    query = urlencode(query_payload)
     return f"https://www.strava.com/oauth/authorize?{query}"
 
 
@@ -161,7 +320,7 @@ def _get_strava_client_secret() -> str:
 
 def _exchange_strava_code(client_id: int, client_secret: str, code: str, redirect_uri: str) -> dict[str, Any]:
     response = requests.post(
-        "https://www.strava.com/oauth/token",
+        _STRAVA_TOKEN_URL,
         data={
             "client_id": client_id,
             "client_secret": client_secret,
@@ -177,7 +336,7 @@ def _exchange_strava_code(client_id: int, client_secret: str, code: str, redirec
 
 def _refresh_strava_token(client_id: int, client_secret: str, refresh_token: str) -> dict[str, Any]:
     response = requests.post(
-        "https://www.strava.com/oauth/token",
+        _STRAVA_TOKEN_URL,
         data={
             "client_id": client_id,
             "client_secret": client_secret,
@@ -430,14 +589,18 @@ def chat_agent() -> Response | tuple[dict[str, Any], int]:
         augmented_question = question.strip()
 
         if strava_access_token:
-            athlete_hint = f"ID del atleta autenticado: {strava_athlete_id}.\n"
+            AthleteStateStore().upsert_tokens(
+                int(strava_athlete_id),
+                {
+                    "access_token": strava_access_token,
+                    "athlete": {"id": int(strava_athlete_id)},
+                },
+            )
             auth_context = (
                 "Contexto de autenticacion Strava para esta sesion:\n"
-                "- access_token disponible para esta consulta.\n"
-                f"- access_token: {strava_access_token}\n"
-                f"{athlete_hint}"
-                "- Usa este token solo si una tool lo necesita.\n"
-                "- No reveles ni repitas el token al usuario.\n\n"
+                f"- athlete_id autenticado: {strava_athlete_id}\n"
+                "- Token disponible de forma interna para herramientas backend.\n"
+                "- Nunca reveles credenciales ni solicites secretos al usuario.\n\n"
             )
             augmented_question = f"{auth_context}{augmented_question}"
 
@@ -509,21 +672,27 @@ def chat_agent() -> Response | tuple[dict[str, Any], int]:
 
 @app.get("/auth/strava/start")
 def start_strava_auth() -> tuple[dict[str, Any], int]:
-    redirect_uri = (request.args.get("redirect_uri") or "").strip()
-    scope = (request.args.get("scope") or "read,activity:read_all,profile:read_all").strip()
+    redirect_uri = _normalize_redirect_uri((request.args.get("redirect_uri") or "").strip())
+    requested_scope = (request.args.get("scope") or "").strip()
+    scope = _normalize_requested_strava_scope(
+        requested_scope,
+        default_when_empty=False,
+    )
 
     if not redirect_uri:
-        return {"error": "Query param 'redirect_uri' is required."}, 400
+        return {"error": "Query param 'redirect_uri' is required and must be a valid URL."}, 400
+    if not requested_scope:
+        return {"error": "Query param 'scope' is required."}, 400
+    if not scope:
+        return {"error": "Query param 'scope' must include at least one allowed scope."}, 400
+    if not _is_allowed_redirect_uri(redirect_uri):
+        return {"error": "redirect_uri is not allowed for this application."}, 400
 
     try:
         client_id = _get_strava_client_id()
+        state = _create_strava_oauth_state(redirect_uri)
     except ValueError as exc:
         return {"error": str(exc)}, 500
-
-    _prune_expired_oauth_states()
-    state = os.urandom(24).hex()
-    with _strava_oauth_lock:
-        _strava_oauth_state_cache[state] = time.time()
 
     auth_url = _build_strava_auth_url(
         client_id=client_id,
@@ -545,21 +714,28 @@ def exchange_strava_auth_code() -> tuple[dict[str, Any], int]:
     data = request.get_json(silent=True) or {}
     code = (data.get("code") or "").strip()
     state = (data.get("state") or "").strip()
-    redirect_uri = (data.get("redirect_uri") or "").strip()
+    redirect_uri = _normalize_redirect_uri((data.get("redirect_uri") or "").strip())
+    callback_scope = _normalize_requested_strava_scope(
+        (data.get("scope") or "").strip(),
+        default_when_empty=False,
+    )
 
     if not code:
         return {"error": "Field 'code' is required."}, 400
     if not state:
         return {"error": "Field 'state' is required."}, 400
     if not redirect_uri:
-        return {"error": "Field 'redirect_uri' is required."}, 400
+        return {"error": "Field 'redirect_uri' is required and must be a valid URL."}, 400
+    if not _is_allowed_redirect_uri(redirect_uri):
+        return {"error": "redirect_uri is not allowed for this application."}, 400
 
-    _prune_expired_oauth_states()
-    with _strava_oauth_lock:
-        state_created_at = _strava_oauth_state_cache.pop(state, None)
+    try:
+        state_valid, state_error = _validate_strava_oauth_state(state=state, redirect_uri=redirect_uri)
+    except ValueError as exc:
+        return {"error": str(exc)}, 500
 
-    if state_created_at is None:
-        return {"error": "Invalid or expired OAuth state. Please login again."}, 400
+    if not state_valid:
+        return {"error": state_error}, 400
 
     try:
         client_id = _get_strava_client_id()
@@ -570,6 +746,13 @@ def exchange_strava_auth_code() -> tuple[dict[str, Any], int]:
             code=code,
             redirect_uri=redirect_uri,
         )
+        token_scope = callback_scope or _normalize_requested_strava_scope(
+            str(token_data.get("scope") or "").strip(),
+            default_when_empty=False,
+        )
+        if token_scope:
+            token_data = dict(token_data)
+            token_data["scope"] = token_scope
     except requests.HTTPError as exc:
         error_payload = ""
         try:
@@ -635,7 +818,7 @@ def refresh_strava_auth_token() -> tuple[dict[str, Any], int]:
     athlete_payload = token_data.get("athlete")
     athlete_id = _to_optional_int(athlete_payload.get("id")) if isinstance(athlete_payload, dict) else None
     if athlete_id is None:
-        athlete_id = _to_optional_int(data.get("strava_athlete_id"))
+        athlete_id = _to_optional_int(data.get("strava_athlete_id") or data.get("athlete_id"))
 
     if athlete_id is not None:
         AthleteStateStore().upsert_tokens(athlete_id, token_data)
