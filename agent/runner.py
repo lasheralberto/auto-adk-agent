@@ -5,8 +5,6 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from agent.tools.sandbox.script_execution_tool import maybe_execute_matching_script
-
 
 APP_NAME = "multi_agent_executor"
 USER_ID = "user1"
@@ -150,23 +148,7 @@ def _to_plain_value(value: object) -> object:
 
 
 def _build_prompt_with_precomputed_context(question: str) -> str:
-    precomputed = maybe_execute_matching_script(question)
-    if precomputed is None:
-        return question
-
-    parts = [question]
-    if precomputed is not None:
-        parts.extend(
-            [
-                "",
-                "[Contexto de script ejecutado automaticamente]",
-                precomputed,
-                "",
-                "Usa este resultado para complementar tu respuesta final al usuario.",
-            ]
-        )
-
-    return "\n".join(parts)
+    return question
 
 
 def _extract_text(content: object) -> str:

@@ -3,7 +3,6 @@ import pathlib
 
 from google.adk.skills import load_skill_from_dir
 from google.adk.models.lite_llm import LiteLlm
-from agent.tools.sandbox.sandbox_gcp_tool import LOCATION, PROJECT_ID
 from agent.config.envars import get_secret, get_setting, load_environment_from_sources
 
 load_environment_from_sources()
@@ -13,30 +12,26 @@ _SKILLS_DIR = pathlib.Path(__file__).parent.parent / "skills"
 
 def _configure_vertex_backend() -> None:
     """Configure ADK/GenAI clients to use Vertex AI instead of API key mode."""
+    project_id = (get_setting("GOOGLE_CLOUD_PROJECT", "") or "").strip() or "vmo-gemini"
+    location = (get_setting("GOOGLE_CLOUD_LOCATION", "") or "").strip() or "us-central1"
     os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", PROJECT_ID)
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", LOCATION)
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", location)
 
 
 _configure_vertex_backend()
 
-# Memory provider configuration
-MEMORY_PROVIDER = get_setting("MEMORY_PROVIDER", "inmemory")
-REDIS_URL = get_setting("REDIS_URL", "")
-SQLITE_MEMORY_DB_PATH = get_setting("SQLITE_MEMORY_DB_PATH", ":memory:")
-
 # ─── Load skills ──────────────────────────────────────────────────────────────
-code_programmer_skill = load_skill_from_dir(_SKILLS_DIR / "code-programmer")
 answer_agent_skill = load_skill_from_dir(_SKILLS_DIR / "answer-agent")
-orchestrator_skill = load_skill_from_dir(_SKILLS_DIR / "orchestrator")
-generic_scripts_skill = load_skill_from_dir(_SKILLS_DIR / "script-execution")
-script_generator_skill = load_skill_from_dir(_SKILLS_DIR / "script-generator")
-memory_agent_skill = load_skill_from_dir(_SKILLS_DIR / "memory-agent")
 intent_router_skill = load_skill_from_dir(_SKILLS_DIR / "intent-router")
-strava_agent_skill = load_skill_from_dir(_SKILLS_DIR / "strava-agent")
-strava_coach_skill = load_skill_from_dir(_SKILLS_DIR / "strava-coach")
-strava_formatter_skill = load_skill_from_dir(_SKILLS_DIR / "strava-formatter")
 plan_react_planner_skill = load_skill_from_dir(_SKILLS_DIR / "plan-react-planner")
+strava_ingestion_skill = load_skill_from_dir(_SKILLS_DIR / "strava-ingestion-agent")
+activity_analysis_skill = load_skill_from_dir(_SKILLS_DIR / "activity-analysis-agent")
+daily_summary_skill = load_skill_from_dir(_SKILLS_DIR / "daily-summary-agent")
+performance_insight_skill = load_skill_from_dir(_SKILLS_DIR / "performance-insight-agent")
+wiki_builder_skill = load_skill_from_dir(_SKILLS_DIR / "wiki-builder-agent")
+embedding_skill = load_skill_from_dir(_SKILLS_DIR / "embedding-agent")
+query_skill = load_skill_from_dir(_SKILLS_DIR / "query-agent")
 
 
 def get_llm_provider(llm_provider: str | None = None, model_name: str | None = None) -> LiteLlm:

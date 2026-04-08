@@ -11,67 +11,26 @@ except Exception:  # noqa: BLE001
 from agent.runner import run_agent
 from agent.config.config import (
     get_llm_provider,
-    code_programmer_skill,
     answer_agent_skill,
-    orchestrator_skill,
-    generic_scripts_skill,
-    script_generator_skill,
-    memory_agent_skill,
     intent_router_skill,
-    strava_agent_skill,
-    strava_coach_skill,
-    strava_formatter_skill,
     plan_react_planner_skill,
+    strava_ingestion_skill,
+    activity_analysis_skill,
+    daily_summary_skill,
+    performance_insight_skill,
+    wiki_builder_skill,
+    embedding_skill,
+    query_skill,
 )
-from agent.tools.sandbox import (
-    generate_script,
-    run_in_sandbox_gcp,
-    execute_inline_script,
-    execute_project_script,
-    list_project_scripts,
-)
-
-from agent.tools.memory import retrieve_memory_context, save_interaction_memory
-from agent.tools.strava import (
-    create_activity,
-    create_upload,
-    complete_strava_oauth,
-    explore_segments,
-    export_route_gpx,
-    export_route_tcx,
-    get_activity_by_id,
-    get_activity_comments,
-    get_activity_kudoers,
-    get_activity_laps,
-    get_activity_streams,
-    get_activity_zones,
-    get_athlete_stats,
-    get_club_activities,
-    get_club_admins,
-    get_club_by_id,
-    get_club_members,
-    get_gear_by_id,
-    get_logged_in_athlete,
-    get_logged_in_athlete_zones,
-    parse_strava_redirect_url,
-    refresh_strava_access_token,
-    get_route_by_id,
-    get_route_streams,
-    get_segment_by_id,
-    get_segment_effort_by_id,
-    get_segment_effort_streams,
-    get_segment_streams,
-    get_upload_by_id,
-    list_athlete_routes,
-    list_logged_in_athlete_activities,
-    list_logged_in_athlete_clubs,
-    list_segment_efforts,
-    list_starred_segments,
-    set_segment_starred,
-    start_strava_oauth,
-    train_strava_rl_model,
-    update_activity_by_id,
-    update_logged_in_athlete_weight,
+from agent.tools.pipeline import (
+    run_ingestion_pipeline,
+    run_activity_analysis_pipeline,
+    run_daily_summary_pipeline,
+    run_performance_insight_pipeline,
+    run_wiki_builder_pipeline,
+    run_embedding_pipeline,
+    run_query_pipeline,
+    run_daily_orchestration_pipeline,
 )
 
 
@@ -104,6 +63,41 @@ def _create_plan_react_planner_agent(selected_model: object) -> AgentTool:
     return AgentTool(agent=planner_agent)
 
 
+def _build_orchestrator_instruction(normalized_planner_mode: str) -> str:
+    planner_directive = (
+        "Always run plan_react_planner before delegation."
+        if normalized_planner_mode == "always"
+        else "Run plan_react_planner only when intent_router outputs FULL_EXECUTION."
+    )
+
+    return (
+        "You are the orchestrator for a 4-layer Strava architecture.\n\n"
+        "Layers:\n"
+        "1) Data Layer: strava_ingestion_agent\n"
+        "2) Processing Layer: activity_analysis_agent, daily_summary_agent, performance_insight_agent\n"
+        "3) Knowledge Layer: wiki_builder_agent\n"
+        "4) Indexing/Query Layer: embedding_agent, query_agent\n\n"
+        "Available tools/agents:\n"
+        "- intent_router\n"
+        "- plan_react_planner\n"
+        "- daily_pipeline_agent\n"
+        "- strava_ingestion_agent\n"
+        "- activity_analysis_agent\n"
+        "- daily_summary_agent\n"
+        "- performance_insight_agent\n"
+        "- wiki_builder_agent\n"
+        "- embedding_agent\n"
+        "- query_agent\n"
+        "- answer_agent\n\n"
+        "Routing rules:\n"
+        "- For user questions about training data, always delegate to query_agent first.\n"
+        "- For sync/rebuild/reindex requests, use daily_pipeline_agent or stage-specific pipeline agents.\n"
+        "- Do not call Strava API agents for normal Q&A; use indexed knowledge context.\n"
+        "- Use answer_agent only for generic conversation or final wording.\n\n"
+        f"Runtime directive: {planner_directive}"
+    )
+
+
 def build_orchestrator(
     llm_provider: str | None = None,
     model_name: str | None = None,
@@ -118,101 +112,64 @@ def build_orchestrator(
         instruction=intent_router_skill.instructions,
     )
 
-    # ─── Code Programmer Agent ───────────────────────────────────────────────────
-    script_executor_agent = LlmAgent(
-        name="generic_scripts_agent",
+    strava_ingestion_agent = AgentTool(agent=LlmAgent(
+        name="strava_ingestion_agent",
         model=selected_model,
-        instruction=generic_scripts_skill.instructions,
-        tools=[list_project_scripts, execute_project_script, execute_inline_script],
-    )
-    script_executor = AgentTool(agent=script_executor_agent)
-
-    script_generator = AgentTool(agent=LlmAgent(
-        name="script_generator_agent",
-        model=selected_model,
-        instruction=script_generator_skill.instructions,
-        tools=[list_project_scripts, generate_script, execute_inline_script, script_executor],
+        instruction=strava_ingestion_skill.instructions,
+        tools=[run_ingestion_pipeline],
     ))
 
-    code_programmer = LlmAgent(
-        name="code_programmer",
+    activity_analysis_agent = AgentTool(agent=LlmAgent(
+        name="activity_analysis_agent",
         model=selected_model,
-        instruction=code_programmer_skill.instructions,
-        tools=[
-            run_in_sandbox_gcp,
-            list_project_scripts,
-            execute_project_script,
-            execute_inline_script,
-            script_executor,
-            script_generator,
-        ],
-    )
-
-    # 1) Agente de datos Strava: concentra llamadas reales a la API.
-    strava_data_agent = AgentTool(agent=LlmAgent(
-        name="strava_data_agent",
-        model=selected_model,
-        instruction=strava_agent_skill.instructions,
-        tools=[
-            start_strava_oauth,
-            parse_strava_redirect_url,
-            complete_strava_oauth,
-            refresh_strava_access_token,
-            get_logged_in_athlete,
-            update_logged_in_athlete_weight,
-            get_logged_in_athlete_zones,
-            get_athlete_stats,
-            list_logged_in_athlete_activities,
-            get_activity_by_id,
-            create_activity,
-            update_activity_by_id,
-            get_activity_laps,
-            get_activity_zones,
-            get_activity_comments,
-            get_activity_kudoers,
-            get_activity_streams,
-            get_segment_by_id,
-            list_starred_segments,
-            set_segment_starred,
-            list_segment_efforts,
-            explore_segments,
-            get_segment_effort_by_id,
-            get_segment_effort_streams,
-            get_segment_streams,
-            get_club_by_id,
-            get_club_members,
-            get_club_admins,
-            get_club_activities,
-            list_logged_in_athlete_clubs,
-            get_gear_by_id,
-            get_route_by_id,
-            list_athlete_routes,
-            export_route_gpx,
-            export_route_tcx,
-            get_route_streams,
-            create_upload,
-            get_upload_by_id,
-            train_strava_rl_model,
-        ],
+        instruction=activity_analysis_skill.instructions,
+        tools=[run_activity_analysis_pipeline],
     ))
 
-    # 2) Agente coach: interpreta datos y recomendaciones deportivas.
-    strava_coach_agent = AgentTool(agent=LlmAgent(
-        name="strava_coach_agent",
+    daily_summary_agent = AgentTool(agent=LlmAgent(
+        name="daily_summary_agent",
         model=selected_model,
-        instruction=strava_coach_skill.instructions,
-        tools=[strava_data_agent],
+        instruction=daily_summary_skill.instructions,
+        tools=[run_daily_summary_pipeline],
     ))
 
-    # 3) Agente formateador: convierte salida del coach a formato legible para frontend.
-    formatter_agent = AgentTool(agent=LlmAgent(
-        name="strava_agent",
+    performance_insight_agent = AgentTool(agent=LlmAgent(
+        name="performance_insight_agent",
         model=selected_model,
-        instruction=strava_formatter_skill.instructions,
-        tools=[strava_coach_agent],
+        instruction=performance_insight_skill.instructions,
+        tools=[run_performance_insight_pipeline],
     ))
 
+    wiki_builder_agent = AgentTool(agent=LlmAgent(
+        name="wiki_builder_agent",
+        model=selected_model,
+        instruction=wiki_builder_skill.instructions,
+        tools=[run_wiki_builder_pipeline],
+    ))
 
+    embedding_agent = AgentTool(agent=LlmAgent(
+        name="embedding_agent",
+        model=selected_model,
+        instruction=embedding_skill.instructions,
+        tools=[run_embedding_pipeline],
+    ))
+
+    query_agent = AgentTool(agent=LlmAgent(
+        name="query_agent",
+        model=selected_model,
+        instruction=query_skill.instructions,
+        tools=[run_query_pipeline],
+    ))
+
+    daily_pipeline_agent = AgentTool(agent=LlmAgent(
+        name="daily_pipeline_agent",
+        model=selected_model,
+        instruction=(
+            "Execute the daily multi-layer pipeline in this strict order: "
+            "ingestion, activity analysis, daily summary, performance insight, wiki builder, embedding."
+        ),
+        tools=[run_daily_orchestration_pipeline],
+    ))
 
     # ─── Answer Agent ────────────────────────────────────────────────────────────
     answer_agent = LlmAgent(
@@ -220,15 +177,6 @@ def build_orchestrator(
         model=selected_model,
         instruction=answer_agent_skill.instructions
     )
-
-    memory_agent = LlmAgent(
-        name="memory_agent",
-        model=selected_model,
-        instruction=memory_agent_skill.instructions,
-        tools=[retrieve_memory_context, save_interaction_memory],
-    )
-
-
 
     # ─── Orchestrator ─────────────────────────────────────────────────────────────
     orchestrator_tools = [
@@ -240,23 +188,19 @@ def build_orchestrator(
 
     orchestrator_tools.extend(
         [
-            formatter_agent,
-            AgentTool(agent=code_programmer),
+            daily_pipeline_agent,
+            strava_ingestion_agent,
+            activity_analysis_agent,
+            daily_summary_agent,
+            performance_insight_agent,
+            wiki_builder_agent,
+            embedding_agent,
+            query_agent,
             AgentTool(agent=answer_agent),
         ]
     )
 
-    orchestrator_instruction = orchestrator_skill.instructions
-    if normalized_planner_mode == "always":
-        orchestrator_instruction = (
-            f"{orchestrator_instruction}\n\n"
-            "Runtime directive: execute plan_react_planner for every request before delegating."
-        )
-    else:
-        orchestrator_instruction = (
-            f"{orchestrator_instruction}\n\n"
-            "Runtime directive: execute plan_react_planner only when intent_router returns FULL_EXECUTION."
-        )
+    orchestrator_instruction = _build_orchestrator_instruction(normalized_planner_mode)
 
     return LlmAgent(
     name="orchestrator",

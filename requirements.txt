@@ -1,8 +1,8 @@
 Flask
 python-dotenv
 firebase-admin
+google-cloud-storage
 flask-cors
-Flask-RESTful
 requests 
 litellm
 openai
@@ -13,6 +13,4 @@ numpy
 google-genai
 google-cloud-aiplatform
 gymnasium
-llm-sandbox
-langextract
 Werkzeug
