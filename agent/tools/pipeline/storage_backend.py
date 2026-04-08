@@ -186,7 +186,8 @@ class AthleteStateStore:
         if use_firestore and firebase_firestore is not None and firebase_admin is not None:
             try:
                 if not firebase_admin._apps:
-                    firebase_admin.initialize_app()
+                    project_id = os.environ.get("PROJECT_ID") or None
+                    firebase_admin.initialize_app(options={"projectId": project_id} if project_id else None)
                 self._client = firebase_firestore.client()
             except Exception:  # noqa: BLE001
                 self._client = None
