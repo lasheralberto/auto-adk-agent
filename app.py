@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import requests
+from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request, stream_with_context
 from flask_cors import CORS
 
@@ -23,6 +24,8 @@ from agent.tools.pipeline import (
     run_wiki_builder,
 )
 from agent.tools.pipeline.storage_backend import AthleteStateStore
+
+load_dotenv()
 
 app = Flask(__name__)
 
