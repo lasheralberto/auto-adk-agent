@@ -334,8 +334,8 @@ def _get_pinecone_index() -> Any:
     return pc.Index(index_name)
 
 
-def _get_pinecone_namespace() -> str:
-    return os.environ.get("PINECONE_NAMESPACE", "strava-agent-namespace")
+def _get_pinecone_namespace(athlete_id: int) -> str:
+    return str(_safe_int(athlete_id, 0))
 
 
 def _get_genai_client() -> Any:
@@ -408,12 +408,12 @@ def run_pinecone_indexing(
         report["errors"].append({"error": str(exc)})
         return report
 
-    namespace = _get_pinecone_namespace()
-
     for target in targets:
         athlete_id = _safe_int(target.get("athlete_id"), 0)
         if athlete_id <= 0:
             continue
+
+        namespace = _get_pinecone_namespace(athlete_id)
 
         paths = _latest_activity_paths_for_day(artifact_store, athlete_id, day)
         if not paths:
@@ -441,6 +441,8 @@ def run_pinecone_indexing(
 
             records.append({
                 "_id": f"{athlete_id}_{activity_id}",
+                # Keep both keys to support existing indexes configured with either field map.
+                "text": text_for_embedding,
                 "_text": text_for_embedding,
                 **metadata,
             })
@@ -549,12 +551,12 @@ def rag_wiki_pipeline(
         report["errors"].append({"error": str(exc)})
         return report
 
-    namespace = _get_pinecone_namespace()
-
     for target in targets:
         athlete_id = _safe_int(target.get("athlete_id"), 0)
         if athlete_id <= 0:
             continue
+
+        namespace = _get_pinecone_namespace(athlete_id)
 
         existing_wiki = _load_existing_wiki(artifact_store, athlete_id)
 
@@ -683,7 +685,7 @@ def run_query_layer(
             "error": str(exc),
         }
 
-    namespace = _get_pinecone_namespace()
+    namespace = _get_pinecone_namespace(athlete_id)
     hits = _pinecone_search(pc_index, namespace, question, athlete_id, top_k=normalized_top_k)
 
     formatted_hits = [
@@ -717,6 +719,7 @@ def run_daily_pipeline(
     athlete_ids_csv: str = "",
     target_date: str = "",
     lookback_days: int = 7,
+    window_days: int = 14,
 ) -> dict[str, Any]:
     state_store = AthleteStateStore()
     run_id = uuid.uuid4().hex
@@ -737,6 +740,7 @@ def run_daily_pipeline(
     pipeline_report = {
         "run_id": run_id,
         "target_date": day,
+        "window_days": max(2, int(window_days)),
         "status": "success",
         "finished_at": utc_now_iso(),
         "steps": {
@@ -801,12 +805,14 @@ def run_daily_orchestration_pipeline(
     athlete_ids_csv: str = "",
     target_date: str = "",
     lookback_days: int = 7,
+    window_days: int = 14,
 ) -> str:
     return json.dumps(
         run_daily_pipeline(
             athlete_ids_csv=athlete_ids_csv,
             target_date=target_date,
             lookback_days=lookback_days,
+            window_days=window_days,
         ),
         ensure_ascii=False,
     )

@@ -59,19 +59,30 @@ class ArtifactStore:
     def mode(self) -> str:
         return "gcs" if self._bucket is not None else "local"
 
+    def _disable_gcs(self) -> None:
+        self._client = None
+        self._bucket = None
+
     def _normalize_path(self, relative_path: str) -> str:
         return str(relative_path).strip().replace("\\", "/").lstrip("/")
 
     def _local_path(self, relative_path: str) -> Path:
         return self._local_root / Path(self._normalize_path(relative_path))
 
+    def _is_local_only_path(self, relative_path: str) -> bool:
+        normalized = f"/{self._normalize_path(relative_path).strip('/')}/"
+        return "/manifests/" in normalized
+
     def write_text(self, relative_path: str, content: str) -> str:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None:
-            blob = self._bucket.blob(path)
-            blob.upload_from_string(content, content_type="text/plain; charset=utf-8")
-            return f"gs://{self._bucket_name}/{path}"
+        if self._bucket is not None and not self._is_local_only_path(path):
+            try:
+                blob = self._bucket.blob(path)
+                blob.upload_from_string(content, content_type="text/plain; charset=utf-8")
+                return f"gs://{self._bucket_name}/{path}"
+            except Exception:  # noqa: BLE001
+                self._disable_gcs()
 
         full_path = self._local_path(path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,13 +92,16 @@ class ArtifactStore:
     def write_json(self, relative_path: str, payload: Any) -> str:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None:
-            blob = self._bucket.blob(path)
-            blob.upload_from_string(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                content_type="application/json; charset=utf-8",
-            )
-            return f"gs://{self._bucket_name}/{path}"
+        if self._bucket is not None and not self._is_local_only_path(path):
+            try:
+                blob = self._bucket.blob(path)
+                blob.upload_from_string(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    content_type="application/json; charset=utf-8",
+                )
+                return f"gs://{self._bucket_name}/{path}"
+            except Exception:  # noqa: BLE001
+                self._disable_gcs()
 
         full_path = self._local_path(path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,11 +114,14 @@ class ArtifactStore:
     def read_text(self, relative_path: str) -> str | None:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None:
-            blob = self._bucket.blob(path)
-            if not blob.exists():
-                return None
-            return blob.download_as_text(encoding="utf-8")
+        if self._bucket is not None and not self._is_local_only_path(path):
+            try:
+                blob = self._bucket.blob(path)
+                if not blob.exists():
+                    return None
+                return blob.download_as_text(encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                self._disable_gcs()
 
         full_path = self._local_path(path)
         if not full_path.exists():
@@ -124,9 +141,12 @@ class ArtifactStore:
     def exists(self, relative_path: str) -> bool:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None:
-            blob = self._bucket.blob(path)
-            return bool(blob.exists())
+        if self._bucket is not None and not self._is_local_only_path(path):
+            try:
+                blob = self._bucket.blob(path)
+                return bool(blob.exists())
+            except Exception:  # noqa: BLE001
+                self._disable_gcs()
 
         return self._local_path(path).exists()
 
@@ -135,13 +155,16 @@ class ArtifactStore:
         normalized_suffix = suffix.strip()
         paths: list[str] = []
 
-        if self._bucket is not None:
-            for blob in self._client.list_blobs(self._bucket_name, prefix=normalized_prefix):
-                name = str(blob.name)
-                if normalized_suffix and not name.endswith(normalized_suffix):
-                    continue
-                paths.append(name)
-            return sorted(paths)
+        if self._bucket is not None and not self._is_local_only_path(normalized_prefix):
+            try:
+                for blob in self._client.list_blobs(self._bucket_name, prefix=normalized_prefix):
+                    name = str(blob.name)
+                    if normalized_suffix and not name.endswith(normalized_suffix):
+                        continue
+                    paths.append(name)
+                return sorted(paths)
+            except Exception:  # noqa: BLE001
+                self._disable_gcs()
 
         root_prefix = self._local_path(normalized_prefix)
         if not root_prefix.exists():
@@ -195,6 +218,9 @@ class AthleteStateStore:
     @property
     def mode(self) -> str:
         return "firestore" if self._client is not None else "local"
+
+    def _disable_firestore(self) -> None:
+        self._client = None
 
     def _load_local_state(self) -> dict[str, Any]:
         if not self._state_path.exists():
@@ -271,11 +297,14 @@ class AthleteStateStore:
         }
 
         if self._client is not None:
-            self._client.collection(self._athletes_collection).document(athlete_key).set(
-                update_payload,
-                merge=True,
-            )
-            return
+            try:
+                self._client.collection(self._athletes_collection).document(athlete_key).set(
+                    update_payload,
+                    merge=True,
+                )
+                return
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
 
         state = self._load_local_state()
         athletes = state.setdefault("athletes", {})
@@ -290,14 +319,17 @@ class AthleteStateStore:
         athlete_key = str(athlete_id)
 
         if self._client is not None:
-            doc = self._client.collection(self._athletes_collection).document(athlete_key).get()
-            if not doc.exists:
-                return None
-            payload = doc.to_dict() or {}
-            if not isinstance(payload, dict):
-                return None
-            payload["athlete_id"] = _to_int(payload.get("athlete_id"), athlete_id)
-            return {key: self._to_plain(value) for key, value in payload.items()}
+            try:
+                doc = self._client.collection(self._athletes_collection).document(athlete_key).get()
+                if not doc.exists:
+                    return None
+                payload = doc.to_dict() or {}
+                if not isinstance(payload, dict):
+                    return None
+                payload["athlete_id"] = _to_int(payload.get("athlete_id"), athlete_id)
+                return {key: self._to_plain(value) for key, value in payload.items()}
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
 
         athletes = self._load_local_state().get("athletes", {})
         payload = athletes.get(athlete_key)
@@ -311,18 +343,21 @@ class AthleteStateStore:
         records: list[dict[str, Any]] = []
 
         if self._client is not None:
-            docs = self._client.collection(self._athletes_collection).stream()
-            for doc in docs:
-                payload = doc.to_dict() or {}
-                if not isinstance(payload, dict):
-                    continue
-                access_token = payload.get("access_token")
-                if not isinstance(access_token, str) or not access_token.strip():
-                    continue
-                payload = {key: self._to_plain(value) for key, value in payload.items()}
-                payload["athlete_id"] = _to_int(payload.get("athlete_id"), _to_int(doc.id))
-                records.append(payload)
-            return records
+            try:
+                docs = self._client.collection(self._athletes_collection).stream()
+                for doc in docs:
+                    payload = doc.to_dict() or {}
+                    if not isinstance(payload, dict):
+                        continue
+                    access_token = payload.get("access_token")
+                    if not isinstance(access_token, str) or not access_token.strip():
+                        continue
+                    payload = {key: self._to_plain(value) for key, value in payload.items()}
+                    payload["athlete_id"] = _to_int(payload.get("athlete_id"), _to_int(doc.id))
+                    records.append(payload)
+                return records
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
 
         athletes = self._load_local_state().get("athletes", {})
         for key, payload in athletes.items():
@@ -354,8 +389,11 @@ class AthleteStateStore:
         }
 
         if self._client is not None:
-            self._client.collection(self._athletes_collection).document(athlete_key).set(payload, merge=True)
-            return
+            try:
+                self._client.collection(self._athletes_collection).document(athlete_key).set(payload, merge=True)
+                return
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
 
         state = self._load_local_state()
         athletes = state.setdefault("athletes", {})
@@ -387,8 +425,11 @@ class AthleteStateStore:
         }
 
         if self._client is not None:
-            self._client.collection(self._athletes_collection).document(athlete_key).set(payload, merge=True)
-            return
+            try:
+                self._client.collection(self._athletes_collection).document(athlete_key).set(payload, merge=True)
+                return
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
 
         state = self._load_local_state()
         athletes = state.setdefault("athletes", {})
@@ -417,8 +458,11 @@ class AthleteStateStore:
         normalized_payload.setdefault("created_at", utc_now_iso())
 
         if self._client is not None:
-            self._client.collection(self._runs_collection).document(str(run_id)).set(normalized_payload, merge=True)
-            return
+            try:
+                self._client.collection(self._runs_collection).document(str(run_id)).set(normalized_payload, merge=True)
+                return
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
 
         state = self._load_local_state()
         runs = state.setdefault("pipeline_runs", {})

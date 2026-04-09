@@ -21,11 +21,7 @@ SERVICE = "strava-api"
 ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 
 SECRETS = [
-    "GOOGLE_API_KEY",
-    "OPENAI_API_KEY",
-"STRAVA_CLIENT_SECRET",
-    "STRAVA_OAUTH_STATE_SECRET",
-    "INTERNAL_PIPELINE_TOKEN",
+    "PINECONE_API_KEY"
 ]
 
 
