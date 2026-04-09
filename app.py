@@ -35,6 +35,11 @@ from agent.tools.pipeline import (
     rag_wiki_pipeline,
 )
 from agent.tools.pipeline.storage_backend import AthleteStateStore
+from agent.agents.wiki_research_chat_agent import (
+    build_wiki_research_chat_agent,
+    read_wiki_research_md,
+)
+from agent.config.config import get_llm_provider
 
 app = Flask(__name__)
 
@@ -895,21 +900,16 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
     data = request.get_json(silent=True) or {}
     athlete_ids_csv = _parse_athlete_ids_csv(data)
     target_date = data.get("target_date") if isinstance(data.get("target_date"), str) else ""
-    lookback_days = max(1, min(_to_int(data.get("lookback_days"), 7), 30))
-    window_days = max(2, min(_to_int(data.get("window_days"), 14), 60))
 
     try:
         report = run_daily_pipeline(
             athlete_ids_csv=athlete_ids_csv,
             target_date=target_date,
-            lookback_days=lookback_days,
-            window_days=window_days,
         )
 
         dispatch_payload = {
             "athlete_ids_csv": athlete_ids_csv,
             "target_date": str(report.get("target_date") or target_date),
-            "window_days": window_days,
             "daily_run_id": str(report.get("run_id") or ""),
         }
         try:
@@ -934,14 +934,12 @@ def run_research_wiki_endpoint() -> tuple[dict[str, Any], int]:
     data = request.get_json(silent=True) or {}
     athlete_ids_csv = _parse_athlete_ids_csv(data)
     target_date = data.get("target_date") if isinstance(data.get("target_date"), str) else ""
-    window_days = max(2, min(_to_int(data.get("window_days"), 14), 60))
     daily_run_id = str(data.get("daily_run_id") or "").strip()
 
     try:
         report = research_wiki_pipeline(
             athlete_ids_csv=athlete_ids_csv,
             target_date=target_date,
-            window_days=window_days,
             daily_run_id=daily_run_id,
         )
         return report, 200
@@ -1043,6 +1041,80 @@ def get_indexing_status() -> tuple[dict[str, Any], int]:
         "last_indexed_date": last_indexed,
         "indexed_today": last_indexed == today,
     }, 200
+
+
+@app.post("/chat/wiki")
+def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
+    data = request.get_json(silent=True) or {}
+
+    question = (data.get("message") or data.get("question") or "").strip()
+    if not question:
+        return {"error": "Field 'message' or 'question' must be a non-empty string."}, 400
+
+    athlete_id = _to_optional_int(data.get("athlete_id") or data.get("strava_athlete_id"))
+    if athlete_id is None or athlete_id <= 0:
+        return {"error": "Field 'athlete_id' is required."}, 400
+
+    llm_param = (
+        data.get("llm_provider")
+        or data.get("llm")
+        or os.environ.get("LLM_PROVIDER")
+        or os.environ.get("LLM")
+        or ""
+    )
+    if not isinstance(llm_param, str) or not llm_param.strip():
+        return {"error": "Field 'llm_provider' must be a non-empty string (e.g. 'google/gemini-2.5-flash')."}, 400
+
+    model_raw = data.get("model")
+    model_name = model_raw.strip() if isinstance(model_raw, str) and model_raw.strip() else None
+
+    stream_param = data.get("stream", False)
+    if isinstance(stream_param, str):
+        stream = stream_param.lower() in ("true", "1", "yes")
+    else:
+        stream = bool(stream_param)
+
+    wiki_content = read_wiki_research_md(athlete_id)
+    if wiki_content is None:
+        return {
+            "error": "wiki_not_found",
+            "details": (
+                f"No se encontró research.md para el atleta {athlete_id} "
+                "en el bucket wiki. Ejecuta primero la pipeline de investigación."
+            ),
+        }, 404
+
+    try:
+        selected_model = get_llm_provider(llm_provider=llm_param.strip().lower(), model_name=model_name)
+        wiki_agent = build_wiki_research_chat_agent(
+            selected_model=selected_model,
+            wiki_content=wiki_content,
+            athlete_id=athlete_id,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": "Wiki chat agent setup failed.", "details": str(exc)}), 500
+
+    if stream:
+        run_streaming_fn = lambda q, agent: run_agent_streaming(q, agent)
+        return Response(
+            stream_with_context(
+                _stream_generator(question, wiki_agent, run_streaming_fn)
+            ),
+            content_type="text/event-stream",
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+            },
+        )
+
+    result = _normalize_chat_result(
+        asyncio.run(run_agent(question, wiki_agent))
+    )
+    result["athlete_id"] = athlete_id
+    return jsonify(result)
 
 
 @app.route("/vector_stores", methods=["GET", "POST", "DELETE"])

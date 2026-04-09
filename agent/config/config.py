@@ -26,8 +26,6 @@ answer_agent_skill = load_skill_from_dir(_SKILLS_DIR / "answer-agent")
 intent_router_skill = load_skill_from_dir(_SKILLS_DIR / "intent-router")
 plan_react_planner_skill = load_skill_from_dir(_SKILLS_DIR / "plan-react-planner")
 strava_ingestion_skill = load_skill_from_dir(_SKILLS_DIR / "strava-ingestion-agent")
-pinecone_indexing_skill = load_skill_from_dir(_SKILLS_DIR / "pinecone-indexing-agent")
-rag_wiki_skill = load_skill_from_dir(_SKILLS_DIR / "rag-wiki-agent")
 query_skill = load_skill_from_dir(_SKILLS_DIR / "query-agent")
 
 

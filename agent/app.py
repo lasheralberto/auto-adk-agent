@@ -15,16 +15,11 @@ from agent.config.config import (
     intent_router_skill,
     plan_react_planner_skill,
     strava_ingestion_skill,
-    pinecone_indexing_skill,
-    rag_wiki_skill,
     query_skill,
 )
 from agent.tools.pipeline import (
     run_ingestion_pipeline,
-    run_pinecone_indexing_pipeline,
-    run_rag_wiki_pipeline,
     run_query_pipeline,
-    run_daily_orchestration_pipeline,
 )
 
 
@@ -38,6 +33,9 @@ def _build_plan_react_kwargs() -> dict[str, object]:
         return {}
 
 
+# Genera un plan de pasos (Plan → ReAct) antes de que el orquestador delegue.
+# Se activa solo cuando intent_router clasifica la intención como FULL_EXECUTION,
+# o siempre si planner_mode="always". Mejora la coherencia en tareas multi-paso.
 def _create_plan_react_planner_agent(selected_model: object) -> AgentTool:
     planner_kwargs = _build_plan_react_kwargs()
     try:
@@ -65,25 +63,18 @@ def _build_orchestrator_instruction(normalized_planner_mode: str) -> str:
     )
 
     return (
-        "You are the orchestrator for a 4-layer Strava architecture.\n\n"
-        "Layers:\n"
-        "1) Data Layer: strava_ingestion_agent\n"
-        "2) Indexing Layer: pinecone_indexing_agent (indexes activities in Pinecone with LLM summaries)\n"
-        "3) Knowledge Layer: rag_wiki_agent (compiles structured wiki from Pinecone data)\n"
-        "4) Query Layer: query_agent (semantic search over Pinecone)\n\n"
+        "You are the orchestrator for a Strava training assistant.\n\n"
         "Available tools/agents:\n"
         "- intent_router\n"
         "- plan_react_planner\n"
-        "- daily_pipeline_agent\n"
         "- strava_ingestion_agent\n"
-        "- pinecone_indexing_agent\n"
-        "- rag_wiki_agent\n"
         "- query_agent\n"
         "- answer_agent\n\n"
         "Routing rules:\n"
         "- For user questions about training data, always delegate to query_agent first.\n"
-        "- For sync/rebuild/reindex requests, use daily_pipeline_agent or stage-specific pipeline agents.\n"
-        "- Do not call Strava API agents for normal Q&A; use indexed knowledge context.\n"
+        "- For sync/ingestion requests, use strava_ingestion_agent.\n"
+        "- Pipeline stages (indexing, RAG wiki, daily pipeline) are handled externally via API endpoints — do not attempt to run them.\n"
+        "- Do not call strava_ingestion_agent for normal Q&A; use query_agent for indexed knowledge.\n"
         "- Use answer_agent only for generic conversation or final wording.\n\n"
         f"Runtime directive: {planner_directive}"
     )
@@ -97,12 +88,18 @@ def build_orchestrator(
     selected_model = get_llm_provider(llm_provider=llm_provider, model_name=model_name)
     normalized_planner_mode = (planner_mode or "full_only").strip().lower()
 
+    # Clasifica la intención del mensaje antes de delegar: decide si se trata de
+    # una consulta simple, una solicitud de sincronización o una ejecución completa.
+    # El orquestador lo usa como primer paso para elegir la ruta de agentes correcta.
     intent_router = LlmAgent(
         name="intent_router",
         model=selected_model,
         instruction=intent_router_skill.instructions,
     )
 
+    # Extrae actividades de la API de Strava y las almacena en el estado local.
+    # Se invoca cuando el usuario solicita sincronizar o actualizar sus datos.
+    # Es el punto de entrada de datos antes de que la pipeline de indexación los procese.
     strava_ingestion_agent = AgentTool(agent=LlmAgent(
         name="strava_ingestion_agent",
         model=selected_model,
@@ -110,20 +107,9 @@ def build_orchestrator(
         tools=[run_ingestion_pipeline],
     ))
 
-    pinecone_indexing_agent = AgentTool(agent=LlmAgent(
-        name="pinecone_indexing_agent",
-        model=selected_model,
-        instruction=pinecone_indexing_skill.instructions,
-        tools=[run_pinecone_indexing_pipeline],
-    ))
-
-    rag_wiki_agent = AgentTool(agent=LlmAgent(
-        name="rag_wiki_agent",
-        model=selected_model,
-        instruction=rag_wiki_skill.instructions,
-        tools=[run_rag_wiki_pipeline],
-    ))
-
+    # Realiza búsqueda semántica sobre los datos indexados en Pinecone.
+    # Es el agente principal para responder preguntas sobre el historial de entrenamiento.
+    # Depende de que la pipeline de indexación se haya ejecutado previamente via endpoint.
     query_agent = AgentTool(agent=LlmAgent(
         name="query_agent",
         model=selected_model,
@@ -131,24 +117,16 @@ def build_orchestrator(
         tools=[run_query_pipeline],
     ))
 
-    daily_pipeline_agent = AgentTool(agent=LlmAgent(
-        name="daily_pipeline_agent",
-        model=selected_model,
-        instruction=(
-            "Execute the daily pipeline in this strict order: "
-            "ingestion, Pinecone indexing, RAG wiki compilation."
-        ),
-        tools=[run_daily_orchestration_pipeline],
-    ))
-
-    # ─── Answer Agent ────────────────────────────────────────────────────────────
+    # Redacta la respuesta final al usuario con el contexto recibido de los demás agentes.
+    # Solo se usa para conversación genérica o para dar forma al texto de cierre.
     answer_agent = LlmAgent(
         name="answer_agent",
         model=selected_model,
         instruction=answer_agent_skill.instructions
     )
 
-    # ─── Orchestrator ─────────────────────────────────────────────────────────────
+    # Coordina el flujo completo: intent_router → plan_react_planner (opcional) →
+    # agente especializado → answer_agent. Es el único agente expuesto al exterior.
     orchestrator_tools = [
         AgentTool(agent=intent_router),
     ]
@@ -158,10 +136,7 @@ def build_orchestrator(
 
     orchestrator_tools.extend(
         [
-            daily_pipeline_agent,
             strava_ingestion_agent,
-            pinecone_indexing_agent,
-            rag_wiki_agent,
             query_agent,
             AgentTool(agent=answer_agent),
         ]
