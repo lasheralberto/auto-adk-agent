@@ -468,3 +468,45 @@ class AthleteStateStore:
         runs = state.setdefault("pipeline_runs", {})
         runs[str(run_id)] = normalized_payload
         self._save_local_state(state)
+
+    def get_pipeline_run(self, run_id: str) -> dict[str, Any] | None:
+        if self._client is not None:
+            try:
+                doc = self._client.collection(self._runs_collection).document(str(run_id)).get()
+                if not doc.exists:
+                    return None
+                payload = doc.to_dict() or {}
+                return {key: self._to_plain(value) for key, value in payload.items()}
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
+
+        runs = self._load_local_state().get("pipeline_runs", {})
+        payload = runs.get(str(run_id))
+        if not isinstance(payload, dict):
+            return None
+        return {key: self._to_plain(value) for key, value in payload.items()}
+
+    def list_pipeline_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+
+        if self._client is not None:
+            try:
+                docs = (
+                    self._client.collection(self._runs_collection)
+                    .order_by("created_at", direction="DESCENDING")
+                    .limit(max(1, int(limit)))
+                    .stream()
+                )
+                for doc in docs:
+                    payload = doc.to_dict() or {}
+                    records.append({key: self._to_plain(value) for key, value in payload.items()})
+                return records
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
+
+        runs = self._load_local_state().get("pipeline_runs", {})
+        for payload in runs.values():
+            if isinstance(payload, dict):
+                records.append({key: self._to_plain(value) for key, value in payload.items()})
+        records.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return records[:max(1, int(limit))]

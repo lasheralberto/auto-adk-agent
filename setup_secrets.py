@@ -21,7 +21,7 @@ SERVICE = "strava-api"
 ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 
 SECRETS = [
-    "PINECONE_API_KEY"
+    "INTERNAL_PIPELINE_BASE_URL"
 ]
 
 

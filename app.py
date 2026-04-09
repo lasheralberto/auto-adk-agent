@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import threading
@@ -11,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
+
+logger = logging.getLogger(__name__)
 
 import requests
 from dotenv import load_dotenv
@@ -380,14 +383,21 @@ def _dispatch_research_wiki_async(payload: dict[str, Any]) -> dict[str, Any]:
 
     def _run_dispatch() -> None:
         try:
-            requests.post(
+            resp = requests.post(
                 endpoint,
                 headers=headers,
                 json=payload,
                 timeout=1800,
             )
-        except Exception:  # noqa: BLE001
-            return
+            if not resp.ok:
+                logger.error(
+                    "research-wiki dispatch %s failed: HTTP %s — %s",
+                    dispatch_id,
+                    resp.status_code,
+                    resp.text[:500],
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("research-wiki dispatch %s raised an exception: %s", dispatch_id, exc)
 
     worker = threading.Thread(
         target=_run_dispatch,
@@ -937,6 +947,35 @@ def run_research_wiki_endpoint() -> tuple[dict[str, Any], int]:
         return report, 200
     except Exception as exc:  # noqa: BLE001
         return {"error": "Research wiki pipeline execution failed.", "details": str(exc)}, 500
+
+
+@app.get("/pipeline/run/<run_id>")
+def get_pipeline_run_endpoint(run_id: str) -> tuple[dict[str, Any], int]:
+    if not _internal_request_authorized():
+        return {"error": "Unauthorized."}, 401
+
+    state_store = AthleteStateStore()
+    run = state_store.get_pipeline_run(run_id.strip())
+    if run is None:
+        return {"error": "run_not_found", "run_id": run_id}, 404
+    return run, 200
+
+
+@app.get("/pipeline/runs")
+def list_pipeline_runs_endpoint() -> tuple[dict[str, Any], int]:
+    if not _internal_request_authorized():
+        return {"error": "Unauthorized."}, 401
+
+    limit = max(1, min(_to_int(request.args.get("limit"), 20), 100))
+    stage = (request.args.get("stage") or "").strip()
+
+    state_store = AthleteStateStore()
+    runs = state_store.list_pipeline_runs(limit=limit)
+
+    if stage:
+        runs = [r for r in runs if r.get("stage") == stage]
+
+    return {"runs": runs, "count": len(runs)}, 200
 
 
 @app.post("/internal/pipeline/stage")
