@@ -55,7 +55,7 @@ def build_wiki_research_chat_agent(
         "de ese informe. Si la información requerida no está en el informe, indícalo claramente.\n\n"
         "INFORME DE INVESTIGACIÓN (research.md):\n"
         "### INICIO DEL INFORME ###\n"
-        f"{wiki_content}\n"
+        f"{wiki_content.replace('{', '{{').replace('}', '}}')}\n"
         "### FIN DEL INFORME ###\n\n"
         "Instrucciones de respuesta:\n"
         "- Responde siempre en español.\n"
