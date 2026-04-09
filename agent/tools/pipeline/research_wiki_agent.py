@@ -10,10 +10,8 @@ from pydantic import BaseModel, Field
 
 try:
     from google import genai as _genai
-    from google.genai import types as _genai_types
 except Exception:  # noqa: BLE001
     _genai = None
-    _genai_types = None
 
 
 _DEFAULT_WORKER_MODEL = os.environ.get("RESEARCH_WIKI_WORKER_MODEL", "gemini-2.5-flash").strip()
@@ -91,12 +89,15 @@ def _gen_text(
     system_instruction: str,
     payload: str,
 ) -> str:
-    response = client.models.generate_content(
+    interaction = client.interactions.create(
         model=model,
-        config=_genai_types.GenerateContentConfig(system_instruction=system_instruction),
-        contents=payload,
+        system_instruction=system_instruction,
+        input=payload,
     )
-    return (response.text or "").strip()
+    for output in (interaction.outputs or []):
+        if output.type == "text":
+            return (output.text or "").strip()
+    return ""
 
 
 def _compact_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -320,10 +321,13 @@ def run_deep_research_wiki_agent(
     metrics: dict[str, Any] | None = None,
     athlete_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if _genai is None or _genai_types is None:
+    if _genai is None:
         raise RuntimeError("google-genai package is not installed")
 
-    client = _genai.Client()
+    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
+    client = _genai.Client(api_key=api_key)
     digest = _build_dataset_digest(
         athlete_id=athlete_id,
         target_date=target_date,
