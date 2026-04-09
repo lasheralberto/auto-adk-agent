@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import secrets
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ from agent.app import build_orchestrator
 from agent.runner import run_agent, run_agent_streaming
 from agent.service.stream_utils import _stream_generator
 from agent.tools.pipeline import (
+    research_wiki_pipeline,
     run_daily_pipeline,
     run_pinecone_indexing,
     run_query_layer,
@@ -357,6 +359,48 @@ def _internal_request_authorized() -> bool:
         or request.headers.get("Authorization", "").replace("Bearer ", "")
     )
     return incoming_token.strip() == configured_token
+
+
+def _internal_pipeline_base_url() -> str:
+    configured_url = (os.environ.get("INTERNAL_PIPELINE_BASE_URL") or "").strip().rstrip("/")
+    if configured_url:
+        return configured_url
+    port = (os.environ.get("PORT") or "8080").strip() or "8080"
+    return f"http://127.0.0.1:{port}"
+
+
+def _dispatch_research_wiki_async(payload: dict[str, Any]) -> dict[str, Any]:
+    dispatch_id = secrets.token_hex(8)
+    endpoint = f"{_internal_pipeline_base_url()}/internal/pipeline/research-wiki"
+
+    configured_token = (os.environ.get("INTERNAL_PIPELINE_TOKEN") or "").strip()
+    headers = {"Content-Type": "application/json"}
+    if configured_token:
+        headers["X-Internal-Token"] = configured_token
+
+    def _run_dispatch() -> None:
+        try:
+            requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=1800,
+            )
+        except Exception:  # noqa: BLE001
+            return
+
+    worker = threading.Thread(
+        target=_run_dispatch,
+        name=f"research-wiki-dispatch-{dispatch_id}",
+        daemon=True,
+    )
+    worker.start()
+
+    return {
+        "status": "queued",
+        "dispatch_id": dispatch_id,
+        "endpoint": endpoint,
+    }
 
 
 def _parse_chat_request(
@@ -851,9 +895,48 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
             lookback_days=lookback_days,
             window_days=window_days,
         )
+
+        dispatch_payload = {
+            "athlete_ids_csv": athlete_ids_csv,
+            "target_date": str(report.get("target_date") or target_date),
+            "window_days": window_days,
+            "daily_run_id": str(report.get("run_id") or ""),
+        }
+        try:
+            report["research_wiki_dispatch"] = _dispatch_research_wiki_async(dispatch_payload)
+        except Exception as exc:  # noqa: BLE001
+            report["research_wiki_dispatch"] = {
+                "status": "failed",
+                "error": str(exc),
+            }
+
         return report, 200
     except Exception as exc:  # noqa: BLE001
         return {"error": "Daily pipeline execution failed.", "details": str(exc)}, 500
+
+
+@app.post("/internal/pipeline/research-wiki")
+@app.post("/pipeline/research-wiki")
+def run_research_wiki_endpoint() -> tuple[dict[str, Any], int]:
+    if not _internal_request_authorized():
+        return {"error": "Unauthorized internal pipeline trigger."}, 401
+
+    data = request.get_json(silent=True) or {}
+    athlete_ids_csv = _parse_athlete_ids_csv(data)
+    target_date = data.get("target_date") if isinstance(data.get("target_date"), str) else ""
+    window_days = max(2, min(_to_int(data.get("window_days"), 14), 60))
+    daily_run_id = str(data.get("daily_run_id") or "").strip()
+
+    try:
+        report = research_wiki_pipeline(
+            athlete_ids_csv=athlete_ids_csv,
+            target_date=target_date,
+            window_days=window_days,
+            daily_run_id=daily_run_id,
+        )
+        return report, 200
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "Research wiki pipeline execution failed.", "details": str(exc)}, 500
 
 
 @app.post("/internal/pipeline/stage")
@@ -881,6 +964,16 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
         if stage == "rag_wiki":
             return rag_wiki_pipeline(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
 
+        if stage == "research_wiki":
+            window_days = max(2, min(_to_int(data.get("window_days"), 14), 60))
+            daily_run_id = str(data.get("daily_run_id") or "").strip()
+            return research_wiki_pipeline(
+                athlete_ids_csv=athlete_ids_csv,
+                target_date=target_date,
+                window_days=window_days,
+                daily_run_id=daily_run_id,
+            ), 200
+
     except Exception as exc:  # noqa: BLE001
         return {"error": "Pipeline stage execution failed.", "details": str(exc)}, 500
 
@@ -890,6 +983,7 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
             "ingestion",
             "pinecone_indexing",
             "rag_wiki",
+            "research_wiki",
         ],
     }, 400
 
@@ -928,6 +1022,7 @@ def deprecated_legacy_routes() -> tuple[dict[str, Any], int]:
             "query": ["/pipeline/query"],
             "daily_pipeline": ["/pipeline/daily", "/internal/pipeline/daily"],
             "stage_pipeline": ["/pipeline/stage", "/internal/pipeline/stage"],
+            "research_wiki_pipeline": ["/pipeline/research-wiki", "/internal/pipeline/research-wiki"],
         },
     }, 410
 

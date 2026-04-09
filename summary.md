@@ -30,17 +30,13 @@
                         │              │                    │
                         ▼              ▼                    ▼
               ┌─────────────────┐ EARLY_RESPONSE    FULL_EXECUTION
-              │   6 etapas:     │  (conversacional)  (con tools)
-              │  1. ingestion   │
-              │  2. activity_   │
-              │     analysis    │
-              │  3. daily_      │
-              │     summary     │
-              │  4. performance_│
-              │     insight     │
-              │  5. wiki_       │
-              │     builder     │
-              │  6. embedding   │
+              │ 4 etapas:       │  (conversacional)  (con tools)
+              │ 1. ingestion    │
+              │ 2. pinecone_    │
+              │    indexing     │
+              │ 3. rag_wiki     │
+              │ 4. research_    │
+              │    wiki (async) │
               └────────┬────────┘
                        │
           ┌────────────┼────────────┐
@@ -68,20 +64,16 @@ POST /pipeline/daily
 │  [1] ingestion-agent                                  │
 │      └─ Strava API → actividades raw → GCS            │
 │                                                       │
-│  [2] activity-analysis-agent                          │
-│      └─ raw GCS → métricas derivadas → GCS            │
+│  [2] pinecone-indexing-agent                          │
+│      └─ raw GCS → summaries + upsert payload          │
+│      └─ payload -> Pinecone                           │
 │                                                       │
-│  [3] daily-summary-agent                              │
-│      └─ métricas → resumen diario → GCS               │
+│  [3] rag-wiki-agent                                   │
+│      └─ contexto Pinecone -> wiki Markdown            │
 │                                                       │
-│  [4] performance-insight-agent                        │
-│      └─ ventana N días → insights → GCS               │
-│                                                       │
-│  [5] wiki-builder-agent                               │
-│      └─ docs GCS → wiki Markdown → GCS               │
-│                                                       │
-│  [6] embedding-agent                                  │
-│      └─ wiki/docs → indice local JSON → GCS            │
+│  [4] research-wiki-agent (asincrono)                  │
+│      └─ input de upsert + ventana historica           │
+│      └─ reporte deep research -> adk-kb-bucket/wiki   │
 │                                                       │
 │  Estado de cada etapa → Firestore                     │
 └───────────────────────────────────────────────────────┘
@@ -165,6 +157,7 @@ Los endpoints internos usan esta regla:
 - POST /auth/strava/exchange: intercambia code por tokens y guarda el atleta.
 - POST /auth/strava/refresh: refresca access_token.
 - POST /pipeline/daily (y /internal/pipeline/daily): corre pipeline completo de un dia.
+- POST /pipeline/research-wiki (y /internal/pipeline/research-wiki): ejecuta investigacion profunda sobre datos Strava del dia/ventana.
 - POST /pipeline/stage (y /internal/pipeline/stage): corre solo una etapa.
 - POST /pipeline/query: consulta semantica directa (RAG) por atleta.
 - POST /chat y POST /ask: chat con orquestador + contexto RAG.
@@ -302,13 +295,11 @@ Body (todos opcionales):
 - window_days: int (default 14, rango 2..60)
 
 Que hace:
-- Ejecuta todas las etapas en orden:
+- Ejecuta etapas sincronas en orden:
 	1. ingestion
-	2. activity_analysis
-	3. daily_summary
-	4. performance_insight
-	5. wiki_builder
-	6. embedding
+	2. pinecone_indexing
+	3. rag_wiki
+- Luego dispara de forma asincrona `research_wiki` via endpoint interno.
 
 Ejemplo:
 ```bash
@@ -337,16 +328,14 @@ Body:
 - athlete_ids | athlete_ids_csv | athlete_id (opcionales)
 - target_date (opcional)
 - lookback_days (solo ingestion, default 7)
-- window_days (solo performance_insight, default 14)
-- force_reindex (solo embedding, default false)
+- window_days (solo research_wiki, default 14)
+- daily_run_id (opcional, usado por research_wiki para trazabilidad)
 
 Stages soportados:
 - ingestion
-- activity_analysis
-- daily_summary
-- performance_insight
-- wiki_builder
-- embedding
+- pinecone_indexing
+- rag_wiki
+- research_wiki
 
 Ejemplo:
 ```bash
@@ -354,14 +343,47 @@ curl -X POST http://localhost:8080/pipeline/stage \
 	-H "Content-Type: application/json" \
 	-H "X-Internal-Token: TU_TOKEN" \
 	-d '{
-		"stage": "embedding",
+		"stage": "research_wiki",
 		"athlete_id": 123,
 		"target_date": "2026-04-08",
-		"force_reindex": true
+		"window_days": 14
 	}'
 ```
 
-### 8) Query semantica directa (sin chat)
+### 8) Deep Research Wiki (ejecucion directa)
+
+Endpoints equivalentes:
+- POST /pipeline/research-wiki
+- POST /internal/pipeline/research-wiki
+
+Auth:
+- Interna (si hay INTERNAL_PIPELINE_TOKEN).
+
+Body:
+- athlete_ids | athlete_ids_csv | athlete_id (opcionales)
+- target_date (opcional)
+- window_days (opcional, default 14, rango 2..60)
+- daily_run_id (opcional)
+
+Que hace:
+- Usa como input el payload preparado para upsert en Pinecone en target_date.
+- No consulta Pinecone para recuperar contexto de investigacion.
+- Completa un analisis profundo de rendimiento, datos de entrenamiento, mejoras y consejos.
+- Sube resultados a `gs://adk-kb-bucket/wiki/{athlete_id}/{yyyy-mm-dd}/research.md`.
+
+Ejemplo:
+```bash
+curl -X POST http://localhost:8080/pipeline/research-wiki \
+	-H "Content-Type: application/json" \
+	-H "X-Internal-Token: TU_TOKEN" \
+	-d '{
+		"athlete_id": 123,
+		"target_date": "2026-04-08",
+		"window_days": 14
+	}'
+```
+
+### 9) Query semantica directa (sin chat)
 
 Endpoint:
 - POST /pipeline/query
@@ -386,7 +408,7 @@ curl -X POST http://localhost:8080/pipeline/query \
 	}'
 ```
 
-### 9) Chat con RAG
+### 10) Chat con RAG
 
 Endpoints equivalentes:
 - POST /chat
