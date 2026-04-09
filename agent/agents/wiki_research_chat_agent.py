@@ -48,6 +48,12 @@ def build_wiki_research_chat_agent(
 ) -> LlmAgent:
     """Build an LlmAgent that answers user questions based on wiki research content."""
 
+    # Escape braces so the ADK template engine does not interpret {variable}
+    # patterns in the wiki content as context variables. This must be done via
+    # string concatenation (not f-string interpolation) so Python does not
+    # convert {{ back to { before ADK sees the instruction.
+    escaped_wiki = wiki_content.replace("{", "{{").replace("}", "}}")
+
     instruction = (
         "Eres un asistente experto en análisis de entrenamiento deportivo para atletas de Strava.\n\n"
         f"Se te ha proporcionado el informe de investigación (wiki) del atleta con ID {athlete_id}. "
@@ -55,8 +61,10 @@ def build_wiki_research_chat_agent(
         "de ese informe. Si la información requerida no está en el informe, indícalo claramente.\n\n"
         "INFORME DE INVESTIGACIÓN (research.md):\n"
         "### INICIO DEL INFORME ###\n"
-        f"{wiki_content.replace('{', '{{').replace('}', '}}')}\n"
-        "### FIN DEL INFORME ###\n\n"
+    )
+    instruction += escaped_wiki
+    instruction += (
+        "\n### FIN DEL INFORME ###\n\n"
         "Instrucciones de respuesta:\n"
         "- Responde siempre en español.\n"
         "- Cita secciones relevantes del informe cuando sea útil.\n"

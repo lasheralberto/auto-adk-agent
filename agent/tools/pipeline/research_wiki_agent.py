@@ -107,7 +107,12 @@ def _build_research_prompt(digest: dict[str, Any], existing_report: str | None =
         "4. Señales de fatiga y recuperación\n"
         "5. Recomendaciones prácticas y próximos pasos\n\n"
         "Basa todas las conclusiones exclusivamente en los datos Strava proporcionados. "
-        "No uses fuentes externas. Escribe en español."
+        "No uses fuentes externas. Escribe en español.\n\n"
+        "FORMATO OBLIGATORIO: Nunca uses notación LaTeX ni llaves {} en el informe. "
+        "Expresa las fórmulas y cálculos en texto plano "
+        "(ejemplo: 'v_media = d / t = 35846 m / 6615 s = 5.42 m/s', no '\\[ v_{media} = \\frac{d}{t} \\]'). "
+        "Usa únicamente Markdown estándar (**, *, #, -, tablas). "
+        "No incluyas ningún símbolo que pueda interpretarse como una variable de plantilla."
     )
 
 
