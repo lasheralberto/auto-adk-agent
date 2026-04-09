@@ -913,9 +913,9 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
             "daily_run_id": str(report.get("run_id") or ""),
         }
         try:
-            report["research_wiki_dispatch"] = _dispatch_research_wiki_async(dispatch_payload)
+            report["steps"]["research_wiki_dispatch"] = _dispatch_research_wiki_async(dispatch_payload)
         except Exception as exc:  # noqa: BLE001
-            report["research_wiki_dispatch"] = {
+            report["steps"]["research_wiki_dispatch"] = {
                 "status": "failed",
                 "error": str(exc),
             }
