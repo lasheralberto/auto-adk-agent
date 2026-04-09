@@ -15,20 +15,14 @@ from agent.config.config import (
     intent_router_skill,
     plan_react_planner_skill,
     strava_ingestion_skill,
-    activity_analysis_skill,
-    daily_summary_skill,
-    performance_insight_skill,
-    wiki_builder_skill,
-    embedding_skill,
+    pinecone_indexing_skill,
+    rag_wiki_skill,
     query_skill,
 )
 from agent.tools.pipeline import (
     run_ingestion_pipeline,
-    run_activity_analysis_pipeline,
-    run_daily_summary_pipeline,
-    run_performance_insight_pipeline,
-    run_wiki_builder_pipeline,
-    run_embedding_pipeline,
+    run_pinecone_indexing_pipeline,
+    run_rag_wiki_pipeline,
     run_query_pipeline,
     run_daily_orchestration_pipeline,
 )
@@ -74,19 +68,16 @@ def _build_orchestrator_instruction(normalized_planner_mode: str) -> str:
         "You are the orchestrator for a 4-layer Strava architecture.\n\n"
         "Layers:\n"
         "1) Data Layer: strava_ingestion_agent\n"
-        "2) Processing Layer: activity_analysis_agent, daily_summary_agent, performance_insight_agent\n"
-        "3) Knowledge Layer: wiki_builder_agent\n"
-        "4) Indexing/Query Layer: embedding_agent, query_agent\n\n"
+        "2) Indexing Layer: pinecone_indexing_agent (indexes activities in Pinecone with LLM summaries)\n"
+        "3) Knowledge Layer: rag_wiki_agent (compiles structured wiki from Pinecone data)\n"
+        "4) Query Layer: query_agent (semantic search over Pinecone)\n\n"
         "Available tools/agents:\n"
         "- intent_router\n"
         "- plan_react_planner\n"
         "- daily_pipeline_agent\n"
         "- strava_ingestion_agent\n"
-        "- activity_analysis_agent\n"
-        "- daily_summary_agent\n"
-        "- performance_insight_agent\n"
-        "- wiki_builder_agent\n"
-        "- embedding_agent\n"
+        "- pinecone_indexing_agent\n"
+        "- rag_wiki_agent\n"
         "- query_agent\n"
         "- answer_agent\n\n"
         "Routing rules:\n"
@@ -119,39 +110,18 @@ def build_orchestrator(
         tools=[run_ingestion_pipeline],
     ))
 
-    activity_analysis_agent = AgentTool(agent=LlmAgent(
-        name="activity_analysis_agent",
+    pinecone_indexing_agent = AgentTool(agent=LlmAgent(
+        name="pinecone_indexing_agent",
         model=selected_model,
-        instruction=activity_analysis_skill.instructions,
-        tools=[run_activity_analysis_pipeline],
+        instruction=pinecone_indexing_skill.instructions,
+        tools=[run_pinecone_indexing_pipeline],
     ))
 
-    daily_summary_agent = AgentTool(agent=LlmAgent(
-        name="daily_summary_agent",
+    rag_wiki_agent = AgentTool(agent=LlmAgent(
+        name="rag_wiki_agent",
         model=selected_model,
-        instruction=daily_summary_skill.instructions,
-        tools=[run_daily_summary_pipeline],
-    ))
-
-    performance_insight_agent = AgentTool(agent=LlmAgent(
-        name="performance_insight_agent",
-        model=selected_model,
-        instruction=performance_insight_skill.instructions,
-        tools=[run_performance_insight_pipeline],
-    ))
-
-    wiki_builder_agent = AgentTool(agent=LlmAgent(
-        name="wiki_builder_agent",
-        model=selected_model,
-        instruction=wiki_builder_skill.instructions,
-        tools=[run_wiki_builder_pipeline],
-    ))
-
-    embedding_agent = AgentTool(agent=LlmAgent(
-        name="embedding_agent",
-        model=selected_model,
-        instruction=embedding_skill.instructions,
-        tools=[run_embedding_pipeline],
+        instruction=rag_wiki_skill.instructions,
+        tools=[run_rag_wiki_pipeline],
     ))
 
     query_agent = AgentTool(agent=LlmAgent(
@@ -165,8 +135,8 @@ def build_orchestrator(
         name="daily_pipeline_agent",
         model=selected_model,
         instruction=(
-            "Execute the daily multi-layer pipeline in this strict order: "
-            "ingestion, activity analysis, daily summary, performance insight, wiki builder, embedding."
+            "Execute the daily pipeline in this strict order: "
+            "ingestion, Pinecone indexing, RAG wiki compilation."
         ),
         tools=[run_daily_orchestration_pipeline],
     ))
@@ -190,11 +160,8 @@ def build_orchestrator(
         [
             daily_pipeline_agent,
             strava_ingestion_agent,
-            activity_analysis_agent,
-            daily_summary_agent,
-            performance_insight_agent,
-            wiki_builder_agent,
-            embedding_agent,
+            pinecone_indexing_agent,
+            rag_wiki_agent,
             query_agent,
             AgentTool(agent=answer_agent),
         ]

@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -22,14 +23,11 @@ from agent.app import build_orchestrator
 from agent.runner import run_agent, run_agent_streaming
 from agent.service.stream_utils import _stream_generator
 from agent.tools.pipeline import (
-    run_activity_analysis,
     run_daily_pipeline,
-    run_daily_summary,
-    run_embedding_index,
-    run_performance_insight,
+    run_pinecone_indexing,
     run_query_layer,
     run_strava_ingestion,
-    run_wiki_builder,
+    rag_wiki_pipeline,
 )
 from agent.tools.pipeline.storage_backend import AthleteStateStore
 
@@ -877,36 +875,12 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
             lookback_days = max(1, min(_to_int(data.get("lookback_days"), 7), 30))
             return run_strava_ingestion(athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days), 200
 
-        if stage == "activity_analysis":
-            return run_activity_analysis(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
+        if stage == "pinecone_indexing":
+            return run_pinecone_indexing(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
 
-        if stage == "daily_summary":
-            return run_daily_summary(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
+        if stage == "rag_wiki":
+            return rag_wiki_pipeline(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
 
-        if stage == "performance_insight":
-            window_days = max(2, min(_to_int(data.get("window_days"), 14), 60))
-            return (
-                run_performance_insight(
-                    athlete_ids_csv=athlete_ids_csv,
-                    target_date=target_date,
-                    window_days=window_days,
-                ),
-                200,
-            )
-
-        if stage == "wiki_builder":
-            return run_wiki_builder(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
-
-        if stage == "embedding":
-            force_reindex = _coerce_bool(data.get("force_reindex"), default=False)
-            return (
-                run_embedding_index(
-                    athlete_ids_csv=athlete_ids_csv,
-                    target_date=target_date,
-                    force_reindex=force_reindex,
-                ),
-                200,
-            )
     except Exception as exc:  # noqa: BLE001
         return {"error": "Pipeline stage execution failed.", "details": str(exc)}, 500
 
@@ -914,13 +888,28 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
         "error": "Unsupported stage.",
         "supported_stages": [
             "ingestion",
-            "activity_analysis",
-            "daily_summary",
-            "performance_insight",
-            "wiki_builder",
-            "embedding",
+            "pinecone_indexing",
+            "rag_wiki",
         ],
     }, 400
+
+
+@app.get("/pipeline/indexing-status")
+def get_indexing_status() -> tuple[dict[str, Any], int]:
+    athlete_id = _to_optional_int(request.args.get("athlete_id"))
+    if athlete_id is None or athlete_id <= 0:
+        return {"error": "Query param 'athlete_id' is required."}, 400
+
+    state_store = AthleteStateStore()
+    today = datetime.now(timezone.utc).date().isoformat()
+    last_indexed = state_store.get_last_indexed_date(athlete_id)
+
+    return {
+        "athlete_id": athlete_id,
+        "today": today,
+        "last_indexed_date": last_indexed,
+        "indexed_today": last_indexed == today,
+    }, 200
 
 
 @app.route("/vector_stores", methods=["GET", "POST", "DELETE"])

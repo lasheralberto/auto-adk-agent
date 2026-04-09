@@ -8,8 +8,7 @@ litellm
 openai
 gunicorn
 google-adk
-rank-bm25
-numpy
+pinecone
 google-genai
 google-cloud-aiplatform
 gymnasium
