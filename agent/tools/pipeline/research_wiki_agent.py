@@ -2,102 +2,20 @@ from __future__ import annotations
 
 import json
 import os
-import re
+import time
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, Field
+import requests
 
-try:
-    from google import genai as _genai
-except Exception:  # noqa: BLE001
-    _genai = None
-
-
-_DEFAULT_WORKER_MODEL = os.environ.get("RESEARCH_WIKI_WORKER_MODEL", "gemini-2.5-flash").strip()
-_DEFAULT_CRITIC_MODEL = os.environ.get("RESEARCH_WIKI_CRITIC_MODEL", "gemini-2.5-flash").strip()
-_MAX_EVAL_ITERATIONS = max(1, min(int(os.environ.get("RESEARCH_WIKI_MAX_EVAL_ITERATIONS", "2")), 5))
-
-
-class FollowUpTask(BaseModel):
-    task: str = Field(description="Targeted follow up task to improve the research output.")
-
-
-class ResearchFeedback(BaseModel):
-    grade: Literal["pass", "fail"] = Field(
-        description="Evaluation result. pass if findings are sufficient, fail otherwise."
-    )
-    comment: str = Field(description="Detailed QA feedback about missing depth or quality.")
-    follow_up_tasks: list[FollowUpTask] = Field(
-        default_factory=list,
-        description="Specific follow up tasks to close quality gaps.",
-    )
-
-
-class ResearchAgentResult(BaseModel):
-    athlete_id: int
-    target_date: str
-    window_days: int
-    plan: str
-    sections: str
-    findings: str
-    evaluations: list[dict[str, Any]]
-    final_report: str
-    created_at: str
+_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+_DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025"
+_POLL_INTERVAL_SECONDS = 10
+_MAX_POLL_ATTEMPTS = 180  # 30 minutes max
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
-    text = (raw_text or "").strip()
-    if not text:
-        return None
-
-    fenced_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
-    if fenced_match:
-        text = fenced_match.group(1).strip()
-
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    first = text.find("{")
-    last = text.rfind("}")
-    if first < 0 or last <= first:
-        return None
-
-    candidate = text[first:last + 1]
-    try:
-        parsed = json.loads(candidate)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        return None
-
-    return None
-
-
-def _gen_text(
-    client: Any,
-    *,
-    model: str,
-    system_instruction: str,
-    payload: str,
-) -> str:
-    interaction = client.interactions.create(
-        model=model,
-        system_instruction=system_instruction,
-        input=payload,
-    )
-    for output in (interaction.outputs or []):
-        if output.type == "text":
-            return (output.text or "").strip()
-    return ""
 
 
 def _compact_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -118,13 +36,7 @@ def _compact_record(record: dict[str, Any]) -> dict[str, Any]:
         "start_date_local",
         "summary",
     ]
-    compact: dict[str, Any] = {}
-    for key in keys:
-        value = record.get(key)
-        if value is None:
-            continue
-        compact[key] = value
-    return compact
+    return {key: record[key] for key in keys if record.get(key) is not None}
 
 
 def _build_dataset_digest(
@@ -138,7 +50,7 @@ def _build_dataset_digest(
     athlete_profile: dict[str, Any] | None,
 ) -> dict[str, Any]:
     profile = athlete_profile if isinstance(athlete_profile, dict) else {}
-    digest = {
+    return {
         "athlete_id": athlete_id,
         "target_date": target_date,
         "window_days": window_days,
@@ -154,161 +66,114 @@ def _build_dataset_digest(
         "target_records": [_compact_record(item) for item in target_records[:200]],
         "historical_records": [_compact_record(item) for item in historical_records[:400]],
     }
-    return digest
 
 
-def _generate_plan(client: Any, *, model: str, digest: dict[str, Any]) -> str:
-    instruction = (
-        "You are a deep research planner for endurance training analytics. "
-        "Create exactly 5 action oriented goals as a markdown bullet list. "
-        "Then append any implied deliverables. "
-        "Prefix goals with [RESEARCH] and implied outputs with [DELIVERABLE][IMPLIED]. "
-        "Use only the provided Strava dataset. Do not mention web search or external sources. "
-        "Write in Spanish."
+def _build_research_prompt(digest: dict[str, Any], existing_report: str | None = None) -> str:
+    athlete_id = digest.get("athlete_id")
+    target_date = digest.get("target_date")
+    window_days = digest.get("window_days")
+    metrics = digest.get("metrics") or {}
+    profile = digest.get("athlete_profile") or {}
+    name = f"{profile.get('firstname', '')} {profile.get('lastname', '')}".strip() or f"Atleta {athlete_id}"
+
+    if existing_report:
+        existing_section = (
+            f"INFORME EXISTENTE (generado en sesiones anteriores):\n"
+            f"<existing_report>\n{existing_report}\n</existing_report>\n\n"
+            "Tu tarea es ACTUALIZAR y MEJORAR el informe anterior incorporando los nuevos datos "
+            f"de la fecha {target_date}. Mantén la información histórica relevante, actualiza las "
+            "tendencias, y enriquece las recomendaciones con la evolución observada.\n\n"
+        )
+        task_description = (
+            "Genera un informe ACTUALIZADO en español que combine el historial previo con los nuevos datos. "
+            "El informe debe reflejar la evolución y progresión del atleta a lo largo del tiempo. "
+        )
+    else:
+        existing_section = ""
+        task_description = "Genera un informe completo en español. "
+
+    return (
+        f"Realiza un análisis profundo de entrenamiento para {name} (ID: {athlete_id}) "
+        f"con fecha objetivo {target_date} y ventana de {window_days} días.\n\n"
+        f"{existing_section}"
+        f"MÉTRICAS RESUMEN:\n{json.dumps(metrics, ensure_ascii=False, indent=2)}\n\n"
+        f"NUEVAS ACTIVIDADES (fecha objetivo + históricas recientes):\n"
+        f"{json.dumps(digest, ensure_ascii=False)}\n\n"
+        f"{task_description}"
+        "El informe debe incluir las siguientes secciones:\n"
+        "1. Rendimiento en la fecha objetivo\n"
+        "2. Tendencias de entrenamiento y evolución temporal\n"
+        "3. Distribución por tipo de deporte\n"
+        "4. Señales de fatiga y recuperación\n"
+        "5. Recomendaciones prácticas y próximos pasos\n\n"
+        "Basa todas las conclusiones exclusivamente en los datos Strava proporcionados. "
+        "No uses fuentes externas. Escribe en español."
     )
-    payload = json.dumps(digest, ensure_ascii=False)
-    return _gen_text(client, model=model, system_instruction=instruction, payload=payload)
 
 
-def _generate_sections(client: Any, *, model: str, plan: str, digest: dict[str, Any]) -> str:
-    instruction = (
-        "You are a report architect. Build a markdown outline with 4 to 6 sections for a training deep-research report. "
-        "The outline must cover rendimiento, datos de entrenamiento, mejoras, consejos, and riesgos. "
-        "Do not include a references section. Write in Spanish."
-    )
-    payload = json.dumps(
-        {
-            "plan": plan,
-            "dataset_summary": {
-                "athlete_id": digest.get("athlete_id"),
-                "target_date": digest.get("target_date"),
-                "window_days": digest.get("window_days"),
-                "metrics": digest.get("metrics"),
-                "target_records_count": len(digest.get("target_records") or []),
-                "historical_records_count": len(digest.get("historical_records") or []),
-            },
+def _post_interaction(api_key: str, prompt: str) -> str:
+    response = requests.post(
+        _INTERACTIONS_URL,
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
         },
-        ensure_ascii=False,
-    )
-    return _gen_text(client, model=model, system_instruction=instruction, payload=payload)
-
-
-def _generate_findings(
-    client: Any,
-    *,
-    model: str,
-    plan: str,
-    sections: str,
-    digest: dict[str, Any],
-) -> str:
-    instruction = (
-        "You are a research analyst. Execute every [RESEARCH] item first, then complete [DELIVERABLE] items. "
-        "Use only the provided dataset. "
-        "No internet, no external data, no Pinecone retrieval. "
-        "Support claims using activity IDs when possible. "
-        "Output markdown findings ready for QA. Write in Spanish."
-    )
-    payload = json.dumps(
-        {
-            "plan": plan,
-            "sections": sections,
-            "dataset": digest,
+        json={
+            "input": prompt,
+            "agent": _DEEP_RESEARCH_AGENT,
+            "background": True,
         },
-        ensure_ascii=False,
+        timeout=60,
     )
-    return _gen_text(client, model=model, system_instruction=instruction, payload=payload)
+    response.raise_for_status()
+    data = response.json()
+    interaction_id = data.get("id") or data.get("name", "").split("/")[-1]
+    if not interaction_id:
+        raise RuntimeError(f"No interaction ID returned: {data}")
+    return interaction_id
 
 
-def _evaluate_findings(
-    client: Any,
-    *,
-    model: str,
-    plan: str,
-    sections: str,
-    findings: str,
-) -> ResearchFeedback:
-    instruction = (
-        "You are a strict quality evaluator for training research. "
-        "Evaluate completeness, depth, actionability, and consistency. "
-        "Return a single JSON object with fields: grade, comment, follow_up_tasks. "
-        "grade must be pass or fail. follow_up_tasks is a list of objects with key task. "
-        "If pass, follow_up_tasks should be empty."
+def _get_interaction(api_key: str, interaction_id: str) -> dict[str, Any]:
+    response = requests.get(
+        f"{_INTERACTIONS_URL}/{interaction_id}",
+        headers={"x-goog-api-key": api_key},
+        timeout=60,
     )
-    payload = json.dumps(
-        {
-            "plan": plan,
-            "sections": sections,
-            "findings": findings,
-        },
-        ensure_ascii=False,
-    )
-    raw = _gen_text(client, model=model, system_instruction=instruction, payload=payload)
-    parsed = _extract_json_object(raw)
-    if isinstance(parsed, dict):
-        try:
-            return ResearchFeedback.model_validate(parsed)
-        except Exception:  # noqa: BLE001
-            pass
-
-    # Fallback to pass if evaluator output is malformed.
-    return ResearchFeedback(grade="pass", comment="Evaluator output parse fallback.", follow_up_tasks=[])
+    response.raise_for_status()
+    return response.json()
 
 
-def _refine_findings(
-    client: Any,
-    *,
-    model: str,
-    findings: str,
-    feedback: ResearchFeedback,
-    digest: dict[str, Any],
-) -> str:
-    instruction = (
-        "You are a refinement analyst. Improve the findings to address every follow up task exactly. "
-        "Keep factual grounding on the provided dataset only. "
-        "Do not introduce external assumptions. Write in Spanish."
-    )
-    payload = json.dumps(
-        {
-            "current_findings": findings,
-            "feedback": feedback.model_dump(mode="json"),
-            "dataset": digest,
-        },
-        ensure_ascii=False,
-    )
-    return _gen_text(client, model=model, system_instruction=instruction, payload=payload)
+def _poll_until_complete(api_key: str, interaction_id: str) -> dict[str, Any]:
+    for attempt in range(_MAX_POLL_ATTEMPTS):
+        data = _get_interaction(api_key, interaction_id)
+        state = str(data.get("state") or data.get("status") or "").upper()
+
+        if state in {"COMPLETED", "SUCCEEDED", "DONE", "COMPLETE"}:
+            return data
+
+        if state in {"FAILED", "ERROR", "CANCELLED"}:
+            raise RuntimeError(f"Interaction {interaction_id} ended with state {state}: {data}")
+
+        if attempt < _MAX_POLL_ATTEMPTS - 1:
+            time.sleep(_POLL_INTERVAL_SECONDS)
+
+    raise RuntimeError(f"Interaction {interaction_id} did not complete after {_MAX_POLL_ATTEMPTS} polls")
 
 
-def _compose_final_report(
-    client: Any,
-    *,
-    model: str,
-    plan: str,
-    sections: str,
-    findings: str,
-    digest: dict[str, Any],
-) -> str:
-    instruction = (
-        "You are a senior endurance coach and technical writer. "
-        "Compose a final polished markdown report using the provided outline and findings. "
-        "Must include clear recommendations and practical next steps. "
-        "Mention that conclusions are based on internal Strava data for the selected window. "
-        "No references section. Write in Spanish."
-    )
-    payload = json.dumps(
-        {
-            "plan": plan,
-            "sections": sections,
-            "findings": findings,
-            "dataset_summary": {
-                "athlete_id": digest.get("athlete_id"),
-                "target_date": digest.get("target_date"),
-                "window_days": digest.get("window_days"),
-                "metrics": digest.get("metrics"),
-            },
-        },
-        ensure_ascii=False,
-    )
-    return _gen_text(client, model=model, system_instruction=instruction, payload=payload)
+def _extract_final_report(data: dict[str, Any]) -> str:
+    for output in (data.get("outputs") or []):
+        if isinstance(output, dict) and output.get("type") == "text":
+            text = (output.get("text") or "").strip()
+            if text:
+                return text
+
+    # Fallback: some responses use a top-level "response" or "text" field
+    for field in ("response", "text", "result"):
+        value = data.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    raise RuntimeError(f"No text output found in completed interaction: {list(data.keys())}")
 
 
 def run_deep_research_wiki_agent(
@@ -320,14 +185,12 @@ def run_deep_research_wiki_agent(
     historical_records: list[dict[str, Any]],
     metrics: dict[str, Any] | None = None,
     athlete_profile: dict[str, Any] | None = None,
+    existing_report: str | None = None,
 ) -> dict[str, Any]:
-    if _genai is None:
-        raise RuntimeError("google-genai package is not installed")
-
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
-    client = _genai.Client(api_key=api_key)
+
     digest = _build_dataset_digest(
         athlete_id=athlete_id,
         target_date=target_date,
@@ -338,54 +201,17 @@ def run_deep_research_wiki_agent(
         athlete_profile=athlete_profile,
     )
 
-    plan = _generate_plan(client, model=_DEFAULT_WORKER_MODEL, digest=digest)
-    sections = _generate_sections(client, model=_DEFAULT_WORKER_MODEL, plan=plan, digest=digest)
-    findings = _generate_findings(
-        client,
-        model=_DEFAULT_WORKER_MODEL,
-        plan=plan,
-        sections=sections,
-        digest=digest,
-    )
+    prompt = _build_research_prompt(digest, existing_report=existing_report)
+    interaction_id = _post_interaction(api_key, prompt)
+    completed = _poll_until_complete(api_key, interaction_id)
+    final_report = _extract_final_report(completed)
 
-    evaluations: list[dict[str, Any]] = []
-    for _ in range(_MAX_EVAL_ITERATIONS):
-        feedback = _evaluate_findings(
-            client,
-            model=_DEFAULT_CRITIC_MODEL,
-            plan=plan,
-            sections=sections,
-            findings=findings,
-        )
-        evaluations.append(feedback.model_dump(mode="json"))
-        if feedback.grade == "pass":
-            break
-        findings = _refine_findings(
-            client,
-            model=_DEFAULT_WORKER_MODEL,
-            findings=findings,
-            feedback=feedback,
-            digest=digest,
-        )
-
-    final_report = _compose_final_report(
-        client,
-        model=_DEFAULT_CRITIC_MODEL,
-        plan=plan,
-        sections=sections,
-        findings=findings,
-        digest=digest,
-    )
-
-    result = ResearchAgentResult(
-        athlete_id=athlete_id,
-        target_date=target_date,
-        window_days=max(2, int(window_days)),
-        plan=plan,
-        sections=sections,
-        findings=findings,
-        evaluations=evaluations,
-        final_report=final_report,
-        created_at=_utc_now_iso(),
-    )
-    return result.model_dump(mode="json")
+    return {
+        "athlete_id": athlete_id,
+        "target_date": target_date,
+        "window_days": max(2, int(window_days)),
+        "interaction_id": interaction_id,
+        "final_report": final_report,
+        "evaluations": [],
+        "created_at": _utc_now_iso(),
+    }

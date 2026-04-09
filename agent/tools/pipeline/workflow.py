@@ -24,10 +24,6 @@ except Exception:  # noqa: BLE001
     _genai = None
     _genai_types = None
 
-try:
-    from google.cloud import storage as _gcs_storage
-except Exception:  # noqa: BLE001
-    _gcs_storage = None
 
 _STRAVA_API_BASE_URL = "https://www.strava.com/api/v3"
 _MAX_SYNC_PAGES = 10
@@ -306,7 +302,6 @@ _WIKI_ARTICLES = [
 
 _MAX_WIKI_ROUNDS = 4
 _RESEARCH_INPUT_PREFIX = "pipeline/research-wiki-input"
-_RESEARCH_OUTPUT_BUCKET = "adk-kb-bucket"
 
 _WIKI_COMPILER_PROMPT = (
     "You are a sports knowledge base compiler. Given raw activity data from Pinecone and "
@@ -809,58 +804,21 @@ def _aggregate_research_metrics(
     }
 
 
+def _read_existing_research(artifact_store: ArtifactStore, athlete_id: int) -> str | None:
+    report_relative_path = f"wiki/{athlete_id}/research.md"
+    return artifact_store.read_text(report_relative_path)
+
+
 def _write_research_outputs(
     artifact_store: ArtifactStore,
     athlete_id: int,
-    day: str,
     report_markdown: str,
-    report_payload: dict[str, Any],
 ) -> dict[str, str]:
-    report_relative_path = f"wiki/{athlete_id}/{day}/research.md"
-    payload_relative_path = f"wiki/{athlete_id}/{day}/research.json"
-
-    report_uri = ""
-    payload_uri = ""
-    storage_mode = "local_fallback"
-
-    if _gcs_storage is not None:
-        try:
-            gcs_client = _gcs_storage.Client()
-            bucket = gcs_client.bucket(_RESEARCH_OUTPUT_BUCKET)
-
-            report_blob = bucket.blob(report_relative_path)
-            report_blob.upload_from_string(
-                report_markdown,
-                content_type="text/markdown; charset=utf-8",
-            )
-
-            payload_blob = bucket.blob(payload_relative_path)
-            payload_blob.upload_from_string(
-                json.dumps(report_payload, ensure_ascii=False, indent=2),
-                content_type="application/json; charset=utf-8",
-            )
-
-            report_uri = f"gs://{_RESEARCH_OUTPUT_BUCKET}/{report_relative_path}"
-            payload_uri = f"gs://{_RESEARCH_OUTPUT_BUCKET}/{payload_relative_path}"
-            storage_mode = "gcs"
-        except Exception:  # noqa: BLE001
-            report_uri = ""
-            payload_uri = ""
-
-    if not report_uri:
-        report_uri = artifact_store.write_text(
-            f"research-wiki-fallback/{report_relative_path}",
-            report_markdown,
-        )
-        payload_uri = artifact_store.write_json(
-            f"research-wiki-fallback/{payload_relative_path}",
-            report_payload,
-        )
-
+    report_relative_path = f"wiki/{athlete_id}/research.md"
+    report_uri = artifact_store.write_text(report_relative_path, report_markdown)
     return {
         "report_path": report_uri,
-        "payload_path": payload_uri,
-        "storage_mode": storage_mode,
+        "storage_mode": artifact_store.mode,
     }
 
 
@@ -942,6 +900,8 @@ def research_wiki_pipeline(
         metrics = _aggregate_research_metrics(target_records, historical_records)
         athlete_profile = target.get("profile") if isinstance(target.get("profile"), dict) else {}
 
+        existing_report = _read_existing_research(artifact_store, athlete_id)
+
         try:
             research_result = run_deep_research_wiki_agent(
                 athlete_id=athlete_id,
@@ -951,6 +911,7 @@ def research_wiki_pipeline(
                 historical_records=historical_records,
                 metrics=metrics,
                 athlete_profile=athlete_profile,
+                existing_report=existing_report,
             )
         except Exception as exc:  # noqa: BLE001
             report["errors"].append({"athlete_id": athlete_id, "error": f"research_generation_failed: {exc}"})
@@ -964,9 +925,7 @@ def research_wiki_pipeline(
         storage_result = _write_research_outputs(
             artifact_store,
             athlete_id,
-            day,
             final_report,
-            research_result,
         )
 
         report["athletes"].append(
@@ -977,9 +936,9 @@ def research_wiki_pipeline(
                 "historical_records": len(historical_records),
                 "target_source": target_source,
                 "raw_fallback_days": raw_fallback_days,
+                "incremental_update": existing_report is not None,
                 "evaluations": len(research_result.get("evaluations") or []),
                 "report_path": storage_result["report_path"],
-                "details_path": storage_result["payload_path"],
                 "storage_mode": storage_result["storage_mode"],
             }
         )
