@@ -1033,13 +1033,16 @@ def get_indexing_status() -> tuple[dict[str, Any], int]:
 
     state_store = AthleteStateStore()
     today = datetime.now(timezone.utc).date().isoformat()
-    last_indexed = state_store.get_last_indexed_date(athlete_id)
+    athlete_doc = state_store.get_athlete(athlete_id) or {}
+    last_indexed = athlete_doc.get("last_indexed_date") or state_store.get_last_indexed_date(athlete_id)
+    last_sync_status = athlete_doc.get("last_sync_status")
 
     return {
         "athlete_id": athlete_id,
         "today": today,
         "last_indexed_date": last_indexed,
         "indexed_today": last_indexed == today,
+        "last_sync_status": last_sync_status,
     }, 200
 
 
