@@ -7,8 +7,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import requests
-
+from .connectors.base import DataConnector
+from .connectors.strava import StravaConnector, _MAX_SYNC_PAGES, _PER_PAGE
 from .research_wiki_agent import run_deep_research_wiki_agent
 from .storage_backend import ArtifactStore, AthleteStateStore, utc_now_iso
 
@@ -23,11 +23,6 @@ try:
 except Exception:  # noqa: BLE001
     _genai = None
     _genai_types = None
-
-
-_STRAVA_API_BASE_URL = "https://www.strava.com/api/v3"
-_MAX_SYNC_PAGES = 10
-_PER_PAGE = 100
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -68,20 +63,6 @@ def _activity_day(activity: dict[str, Any]) -> str:
         return date_utc[:10]
 
     return datetime.now(timezone.utc).date().isoformat()
-
-
-def _strava_get(access_token: str, path: str, params: dict[str, Any] | None = None) -> Any:
-    response = requests.get(
-        url=f"{_STRAVA_API_BASE_URL}{path}",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/json",
-        },
-        params={key: value for key, value in (params or {}).items() if value is not None},
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
 
 
 def _resolve_targets(state_store: AthleteStateStore, athlete_ids_csv: str = "") -> list[dict[str, Any]]:
@@ -132,21 +113,32 @@ def _latest_activity_paths_for_day(
 
     return sorted(by_activity_id.values())
 
-def run_strava_ingestion(
+def run_ingestion(
+    connector: DataConnector,
     athlete_ids_csv: str = "",
     lookback_days: int = 7,
     max_pages: int = _MAX_SYNC_PAGES,
     per_page: int = _PER_PAGE,
 ) -> dict[str, Any]:
+    """Pipeline de ingesta agnóstico del servicio.
+
+    Delega la obtención de datos al ``connector`` y gestiona almacenamiento
+    y estado de sincronización en las capas comunes (ArtifactStore, AthleteStateStore).
+    """
     state_store = AthleteStateStore()
     artifact_store = ArtifactStore()
 
-    targets = _resolve_targets(state_store, athlete_ids_csv)
+    if athlete_ids_csv.strip():
+        targets = _resolve_targets(state_store, athlete_ids_csv)
+    else:
+        targets = connector.list_syncable_athletes()
+
     now_epoch = int(datetime.now(timezone.utc).timestamp())
     lookback_seconds = max(1, int(lookback_days)) * 24 * 60 * 60
 
     run_report: dict[str, Any] = {
         "stage": "ingestion",
+        "connector": connector.connector_name,
         "started_at": utc_now_iso(),
         "store_mode": artifact_store.mode,
         "state_mode": state_store.mode,
@@ -156,15 +148,8 @@ def run_strava_ingestion(
 
     for target in targets:
         athlete_id = _safe_int(target.get("athlete_id"), 0)
-        access_token = str(target.get("access_token") or "").strip()
-
-        if athlete_id <= 0 or not access_token:
-            run_report["errors"].append(
-                {
-                    "athlete_id": athlete_id,
-                    "error": "missing_access_token_or_athlete_id",
-                }
-            )
+        if athlete_id <= 0:
+            run_report["errors"].append({"athlete_id": athlete_id, "error": "missing_athlete_id"})
             continue
 
         previous_sync = state_store.get_last_sync_epoch(athlete_id)
@@ -175,59 +160,41 @@ def run_strava_ingestion(
             "athlete_id": athlete_id,
             "after_epoch": after_epoch,
             "stored_activities": 0,
-            "pages": 0,
             "manifest_path": None,
         }
 
-        try:
-            profile_payload = _strava_get(access_token, "/athlete")
-            if isinstance(profile_payload, dict):
-                state_store.upsert_tokens(
-                    athlete_id,
-                    {
-                        "access_token": access_token,
-                        "refresh_token": target.get("refresh_token"),
-                        "expires_at": target.get("expires_at"),
-                        "scope": target.get("scope"),
-                        "athlete": profile_payload,
-                    },
-                )
-        except requests.RequestException:
-            pass
+        # Refresh profile in state (best-effort)
+        profile_payload = connector.get_athlete_profile(athlete_id)
+        if isinstance(profile_payload, dict):
+            state_store.upsert_tokens(
+                athlete_id,
+                {
+                    "access_token": target.get("access_token"),
+                    "refresh_token": target.get("refresh_token"),
+                    "expires_at": target.get("expires_at"),
+                    "scope": target.get("scope"),
+                    "athlete": profile_payload,
+                },
+            )
 
         try:
-            for page in range(1, max(1, int(max_pages)) + 1):
-                payload = _strava_get(
-                    access_token,
-                    "/athlete/activities",
-                    params={
-                        "after": after_epoch,
-                        "page": page,
-                        "per_page": max(1, min(int(per_page), 200)),
-                    },
+            activities = connector.fetch_activities(
+                athlete_id,
+                after_epoch=after_epoch,
+                max_pages=max_pages,
+                per_page=per_page,
+            )
+
+            for activity in activities:
+                activity_id = _safe_int(activity.get("id"), 0)
+                if activity_id <= 0:
+                    continue
+                activity_day = _activity_day(activity)
+                relative_path = (
+                    f"raw/athletes/{athlete_id}/activities/{activity_day}/{activity_id}_{sync_stamp}.json"
                 )
-
-                athlete_report["pages"] = page
-                if not isinstance(payload, list) or not payload:
-                    break
-
-                for activity in payload:
-                    if not isinstance(activity, dict):
-                        continue
-
-                    activity_id = _safe_int(activity.get("id"), 0)
-                    if activity_id <= 0:
-                        continue
-
-                    activity_day = _activity_day(activity)
-                    relative_path = (
-                        f"raw/athletes/{athlete_id}/activities/{activity_day}/{activity_id}_{sync_stamp}.json"
-                    )
-                    artifact_store.write_json(relative_path, activity)
-                    athlete_report["stored_activities"] += 1
-
-                if len(payload) < per_page:
-                    break
+                artifact_store.write_json(relative_path, activity)
+                athlete_report["stored_activities"] += 1
 
             manifest_path = f"raw/athletes/{athlete_id}/manifests/{_normalize_date(None)}_{sync_stamp}.json"
             artifact_store.write_json(
@@ -245,42 +212,39 @@ def run_strava_ingestion(
                 athlete_id,
                 last_sync_epoch=now_epoch,
                 status="success",
-                details={
-                    "stored_activities": athlete_report["stored_activities"],
-                    "pages": athlete_report["pages"],
-                },
+                details={"stored_activities": athlete_report["stored_activities"]},
             )
             run_report["athletes"].append(athlete_report)
-        except requests.HTTPError as exc:
+        except Exception as exc:  # noqa: BLE001
             state_store.update_sync_state(
                 athlete_id,
                 last_sync_epoch=now_epoch,
                 status="failed",
                 details={"error": str(exc)},
             )
-            run_report["errors"].append(
-                {
-                    "athlete_id": athlete_id,
-                    "error": str(exc),
-                }
-            )
-        except requests.RequestException as exc:
-            state_store.update_sync_state(
-                athlete_id,
-                last_sync_epoch=now_epoch,
-                status="failed",
-                details={"error": str(exc)},
-            )
-            run_report["errors"].append(
-                {
-                    "athlete_id": athlete_id,
-                    "error": str(exc),
-                }
-            )
+            run_report["errors"].append({"athlete_id": athlete_id, "error": str(exc)})
 
     run_report["finished_at"] = utc_now_iso()
     run_report["ok"] = not run_report["errors"]
     return run_report
+
+
+def run_strava_ingestion(
+    athlete_ids_csv: str = "",
+    lookback_days: int = 7,
+    max_pages: int = _MAX_SYNC_PAGES,
+    per_page: int = _PER_PAGE,
+) -> dict[str, Any]:
+    """Wrapper de compatibilidad que usa el conector de Strava."""
+    state_store = AthleteStateStore()
+    connector = StravaConnector(state_store)
+    return run_ingestion(
+        connector,
+        athlete_ids_csv=athlete_ids_csv,
+        lookback_days=lookback_days,
+        max_pages=max_pages,
+        per_page=per_page,
+    )
 
 
 # ─── Pinecone helpers ────────────────────────────────────────────────────────
@@ -1029,7 +993,8 @@ def run_daily_pipeline(
     }
     state_store.record_pipeline_run(run_id, started_payload)
 
-    ingestion_report = run_strava_ingestion(athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days)
+    connector = StravaConnector(state_store)
+    ingestion_report = run_ingestion(connector, athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days)
     indexing_report = run_pinecone_indexing(athlete_ids_csv=athlete_ids_csv, target_date=day)
     wiki_report = rag_wiki_pipeline(athlete_ids_csv=athlete_ids_csv, target_date=day)
 
@@ -1053,8 +1018,10 @@ def run_daily_pipeline(
 # ─── Pipeline wrappers (JSON string output for agent tools) ─────────────────
 
 def run_ingestion_pipeline(athlete_ids_csv: str = "", lookback_days: int = 7) -> str:
+    state_store = AthleteStateStore()
+    connector = StravaConnector(state_store)
     return json.dumps(
-        run_strava_ingestion(athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days),
+        run_ingestion(connector, athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days),
         ensure_ascii=False,
     )
 

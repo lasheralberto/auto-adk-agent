@@ -1,4 +1,6 @@
+from .connectors import DataConnector, StravaConnector
 from .workflow import (
+    run_ingestion,
     run_strava_ingestion,
     run_pinecone_indexing,
     rag_wiki_pipeline,
@@ -14,6 +16,9 @@ from .workflow import (
 )
 
 __all__ = [
+    "DataConnector",
+    "StravaConnector",
+    "run_ingestion",
     "run_strava_ingestion",
     "run_pinecone_indexing",
     "rag_wiki_pipeline",
