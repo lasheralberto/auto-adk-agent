@@ -908,6 +908,7 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
         )
 
         dispatch_payload = {
+            "athlete_id": _to_optional_int(data.get("athlete_id")),
             "athlete_ids_csv": athlete_ids_csv,
             "target_date": str(report.get("target_date") or target_date),
             "daily_run_id": str(report.get("run_id") or ""),
