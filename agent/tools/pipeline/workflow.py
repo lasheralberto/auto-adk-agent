@@ -922,6 +922,96 @@ def research_wiki_pipeline(
     return report
 
 
+# ─── Stage: Pinecone Index Summary ──────────────────────────────────────────
+
+def _chunk_research_report(report_text: str, athlete_id: int, target_date: str) -> list[dict[str, Any]]:
+    """Split research.md by ## sections and return Pinecone-ready records."""
+    sections = re.split(r"(?=^## )", report_text, flags=re.MULTILINE)
+    records = []
+    for i, section in enumerate(sections):
+        text = section.strip()
+        if not text:
+            continue
+        first_line = text.split("\n", 1)[0].lstrip("# ").strip()
+        chunk = text[:4000]
+        records.append({
+            "_id": f"{athlete_id}_research_summary_{i}",
+            "text": chunk,
+            "_text": chunk,
+            "athlete_id": athlete_id,
+            "type": "research_summary",
+            "target_date": target_date,
+            "section": first_line,
+            "summary": chunk[:1500],
+        })
+    return records
+
+
+def run_pinecone_index_summary(
+    athlete_ids_csv: str = "",
+    target_date: str = "",
+) -> dict[str, Any]:
+    artifact_store = ArtifactStore()
+    state_store = AthleteStateStore()
+    day = _normalize_date(target_date)
+    targets = _resolve_targets(state_store, athlete_ids_csv)
+
+    report: dict[str, Any] = {
+        "stage": "pinecone_index_summary",
+        "target_date": day,
+        "athletes": [],
+        "errors": [],
+    }
+
+    try:
+        pc_index = _get_pinecone_index()
+    except RuntimeError as exc:
+        report["errors"].append({"error": str(exc)})
+        report["ok"] = False
+        report["finished_at"] = utc_now_iso()
+        return report
+
+    for target in targets:
+        athlete_id = _safe_int(target.get("athlete_id"), 0)
+        if athlete_id <= 0:
+            continue
+
+        namespace = _get_pinecone_namespace(athlete_id)
+        report_text = artifact_store.read_text(f"wiki/{athlete_id}/research.md")
+        if not isinstance(report_text, str) or not report_text.strip():
+            report["athletes"].append({
+                "athlete_id": athlete_id,
+                "status": "skipped",
+                "reason": "research_md_not_found",
+            })
+            continue
+
+        records = _chunk_research_report(report_text, athlete_id, day)
+        if not records:
+            report["athletes"].append({
+                "athlete_id": athlete_id,
+                "status": "skipped",
+                "reason": "no_chunks_generated",
+            })
+            continue
+
+        try:
+            pc_index.upsert_records(namespace=namespace, records=records)
+        except Exception as exc:  # noqa: BLE001
+            report["errors"].append({"athlete_id": athlete_id, "error": str(exc)})
+            continue
+
+        report["athletes"].append({
+            "athlete_id": athlete_id,
+            "status": "indexed",
+            "records_upserted": len(records),
+        })
+
+    report["ok"] = not report["errors"]
+    report["finished_at"] = utc_now_iso()
+    return report
+
+
 # ─── Query Layer (Pinecone) ─────────────────────────────────────────────────
 
 def run_query_layer(
