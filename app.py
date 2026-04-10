@@ -29,11 +29,7 @@ from agent.service.stream_utils import _stream_generator
 from agent.tools.pipeline import (
     research_wiki_pipeline,
     run_daily_pipeline,
-    run_pinecone_indexing,
-    run_pinecone_index_summary,
-    run_query_layer,
     run_strava_ingestion,
-    rag_wiki_pipeline,
 )
 from agent.tools.pipeline.storage_backend import AthleteStateStore
 from agent.agents.wiki_research_chat_agent import (
@@ -418,46 +414,6 @@ def _dispatch_research_wiki_async(payload: dict[str, Any]) -> dict[str, Any]:
         "endpoint": endpoint,
     }
 
-
-def _dispatch_pinecone_index_summary_async(payload: dict[str, Any]) -> dict[str, Any]:
-    dispatch_id = secrets.token_hex(8)
-    endpoint = f"{_internal_pipeline_base_url()}/internal/pipeline/pinecone-index-summary"
-
-    configured_token = (os.environ.get("INTERNAL_PIPELINE_TOKEN") or "").strip()
-    headers = {"Content-Type": "application/json"}
-    if configured_token:
-        headers["X-Internal-Token"] = configured_token
-
-    def _run_dispatch() -> None:
-        try:
-            resp = requests.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=300,
-            )
-            if not resp.ok:
-                logger.error(
-                    "pinecone-index-summary dispatch %s failed: HTTP %s — %s",
-                    dispatch_id,
-                    resp.status_code,
-                    resp.text[:500],
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("pinecone-index-summary dispatch %s raised an exception: %s", dispatch_id, exc)
-
-    worker = threading.Thread(
-        target=_run_dispatch,
-        name=f"pinecone-index-summary-dispatch-{dispatch_id}",
-        daemon=True,
-    )
-    worker.start()
-
-    return {
-        "status": "queued",
-        "dispatch_id": dispatch_id,
-        "endpoint": endpoint,
-    }
 
 
 def _parse_chat_request(
@@ -985,42 +941,9 @@ def run_research_wiki_endpoint() -> tuple[dict[str, Any], int]:
             target_date=target_date,
             daily_run_id=daily_run_id,
         )
-        compiled_ids = [
-            str(a["athlete_id"])
-            for a in report.get("athletes", [])
-            if a.get("status") == "compiled"
-        ]
-        if compiled_ids:
-            dispatch_payload = {
-                "athlete_ids": ",".join(compiled_ids),
-                "target_date": target_date,
-            }
-            try:
-                report["pinecone_index_summary_dispatch"] = _dispatch_pinecone_index_summary_async(dispatch_payload)
-            except Exception as exc:  # noqa: BLE001
-                report["pinecone_index_summary_dispatch"] = {"status": "failed", "error": str(exc)}
         return report, 200
     except Exception as exc:  # noqa: BLE001
         return {"error": "Research wiki pipeline execution failed.", "details": str(exc)}, 500
-
-
-@app.post("/internal/pipeline/pinecone-index-summary")
-def run_pinecone_index_summary_endpoint() -> tuple[dict[str, Any], int]:
-    if not _internal_request_authorized():
-        return {"error": "Unauthorized internal pipeline trigger."}, 401
-
-    data = request.get_json(silent=True) or {}
-    athlete_ids_csv = _parse_athlete_ids_csv(data)
-    target_date = data.get("target_date") if isinstance(data.get("target_date"), str) else ""
-
-    try:
-        report = run_pinecone_index_summary(
-            athlete_ids_csv=athlete_ids_csv,
-            target_date=target_date,
-        )
-        return report, 200
-    except Exception as exc:  # noqa: BLE001
-        return {"error": "Pinecone index summary execution failed.", "details": str(exc)}, 500
 
 
 @app.get("/pipeline/run/<run_id>")
@@ -1071,12 +994,6 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
             lookback_days = max(1, min(_to_int(data.get("lookback_days"), 7), 30))
             return run_strava_ingestion(athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days), 200
 
-        if stage == "pinecone_indexing":
-            return run_pinecone_indexing(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
-
-        if stage == "rag_wiki":
-            return rag_wiki_pipeline(athlete_ids_csv=athlete_ids_csv, target_date=target_date), 200
-
         if stage == "research_wiki":
             window_days = max(2, min(_to_int(data.get("window_days"), 14), 60))
             daily_run_id = str(data.get("daily_run_id") or "").strip()
@@ -1094,8 +1011,6 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
         "error": "Unsupported stage.",
         "supported_stages": [
             "ingestion",
-            "pinecone_indexing",
-            "rag_wiki",
             "research_wiki",
         ],
     }, 400
@@ -1163,20 +1078,12 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
             ),
         }, 404
 
-    pinecone_context: str | None = None
-    try:
-        rag_result = run_query_layer(question=question, athlete_id=athlete_id, top_k=8)
-        pinecone_context = rag_result.get("context") or None
-    except Exception:  # noqa: BLE001
-        pass  # RAG is best-effort; proceed with wiki-only if Pinecone is unavailable
-
     try:
         selected_model = get_llm_provider(llm_provider=llm_param.strip().lower(), model_name=model_name)
         wiki_agent = build_wiki_research_chat_agent(
             selected_model=selected_model,
             wiki_content=wiki_content,
             athlete_id=athlete_id,
-            pinecone_context=pinecone_context,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

@@ -8,7 +8,6 @@ litellm
 openai
 gunicorn
 google-adk
-pinecone
 google-genai
 google-cloud-aiplatform
 gymnasium

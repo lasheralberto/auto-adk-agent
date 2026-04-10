@@ -1,13 +1,12 @@
 # Strava Agent — Backend API
 
-REST API + agente conversacional que sincroniza actividades de Strava, las indexa en Pinecone y responde preguntas sobre el entrenamiento del atleta usando un LLM.
+REST API + agente conversacional que sincroniza actividades de Strava, ejecuta ingesta diaria y pipeline de investigación wiki, y responde preguntas sobre el entrenamiento del atleta usando un LLM.
 
 ## Requisitos previos
 
 - Python 3.10+
 - Una app registrada en [strava.com/settings/api](https://www.strava.com/settings/api)
 - Una API key de OpenAI **o** un proyecto de Google Cloud con Gemini habilitado
-- Una cuenta de [Pinecone](https://pinecone.io)
 
 ---
 
@@ -66,17 +65,6 @@ GOOGLE_CLOUD_PROJECT=tu-proyecto
 GOOGLE_CLOUD_LOCATION=us-central1
 ```
 
-### Pinecone (para indexación semántica de actividades)
-
-```env
-PINECONE_API_KEY=pcsk_...
-PINECONE_INDEX_NAME=strava-agent
-```
-
-1. Crea una cuenta en [pinecone.io](https://pinecone.io).
-2. Crea un índice **dense** con el modelo `llama-text-embed-v2`.
-3. Copia la API key.
-
 ### Seguridad
 
 ```env
@@ -106,9 +94,19 @@ GCS_KNOWLEDGE_BUCKET=nombre-del-bucket
 | `POST` | `/ask` | Pregunta al agente conversacional |
 | `GET` | `/auth/strava` | Inicia el flujo OAuth de Strava |
 | `GET` | `/auth/strava/callback` | Callback OAuth de Strava |
-| `POST` | `/pipeline/stage` | Ejecuta una etapa del pipeline manualmente |
-| `POST` | `/pipeline/daily` | Ejecuta el pipeline completo (ingesta → indexación → wiki) |
+| `POST` | `/pipeline/stage` | Ejecuta una etapa manual (`ingestion` o `research_wiki`) |
+| `POST` | `/pipeline/daily` | Ejecuta ingesta diaria y encola `research_wiki` de forma asíncrona |
+| `POST` | `/pipeline/research-wiki` | Ejecuta compilación de research wiki |
 | `GET` | `/health` | Health check |
+
+---
+
+## Flujo real de `/pipeline/daily`
+
+1. Ejecuta ingesta (`run_daily_pipeline -> ingestion`).
+2. Devuelve reporte inicial con `steps.ingestion`.
+3. Encola `/internal/pipeline/research-wiki` (no espera resultado final).
+4. El estado de compilación wiki se revisa por runs y artefactos de investigación.
 
 ---
 
@@ -141,8 +139,6 @@ gcloud beta builds submit   # usa cloudbuild.yaml incluido en el repo
 | `LLM_PROVIDER` | Sí | `openai` o `google` |
 | `OPENAI_API_KEY` | Si usa OpenAI | API key de OpenAI |
 | `GOOGLE_API_KEY` | Si usa Gemini | API key de Google |
-| `PINECONE_API_KEY` | Para indexación | API key de Pinecone |
-| `PINECONE_INDEX_NAME` | Para indexación | Nombre del índice (ej. `strava-agent`) |
 | `INTERNAL_PIPELINE_TOKEN` | Recomendada | Protege endpoints internos |
 | `CORS_ALLOWED_ORIGINS` | Recomendada | Orígenes CORS permitidos |
 | `USE_FIRESTORE_STATE` | No | `true` para usar Firestore en vez de JSON local |

@@ -12,18 +12,6 @@ from .connectors.strava import StravaConnector, _MAX_SYNC_PAGES, _PER_PAGE
 from .research_wiki_agent import run_deep_research_wiki_agent
 from .storage_backend import ArtifactStore, AthleteStateStore, utc_now_iso
 
-try:
-    from pinecone import Pinecone as _Pinecone
-except Exception:  # noqa: BLE001
-    _Pinecone = None
-
-try:
-    from google import genai as _genai
-    from google.genai import types as _genai_types
-except Exception:  # noqa: BLE001
-    _genai = None
-    _genai_types = None
-
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -247,92 +235,10 @@ def run_strava_ingestion(
     )
 
 
-# ─── Pinecone helpers ────────────────────────────────────────────────────────
-
-_PINECONE_SUMMARY_INSTRUCTION = (
-    "You are a sports analytics assistant. "
-    "Given a Strava activity JSON, write a concise summary in at most 50 words. "
-    "Focus on: sport type, distance, duration, elevation, intensity, and any notable metrics. "
-    "Write in the same language as the activity name. Be factual and specific."
-)
-
-_WIKI_ARTICLES = [
-    "profile.md",
-    "training_summary.md",
-    "performance_trends.md",
-    "fatigue_recovery.md",
-    "insights.md",
-]
-
-_MAX_WIKI_ROUNDS = 4
 _RESEARCH_INPUT_PREFIX = "pipeline/research-wiki-input"
 
-_WIKI_COMPILER_PROMPT = (
-    "You are a sports knowledge base compiler. Given raw activity data from Pinecone and "
-    "an optional existing wiki, generate or update a structured athlete wiki.\n\n"
-    "Output format: emit each article separated by a line containing only '---ARTICLE: filename.md---'.\n"
-    "The filenames MUST be exactly: profile.md, training_summary.md, performance_trends.md, "
-    "fatigue_recovery.md, insights.md.\n\n"
-    "Rules for each article:\n"
-    "- profile.md: Athlete profile — sports practiced, level, equipment, location.\n"
-    "- training_summary.md: Recent training overview — volume, frequency, types of sessions.\n"
-    "- performance_trends.md: Trends — distance, speed, elevation over time. Improvements and declines.\n"
-    "- fatigue_recovery.md: Fatigue and recovery signals — training load, rest days, intensity patterns.\n"
-    "- insights.md: Key insights, recommendations, contradictions between old and new data.\n\n"
-    "Each article must:\n"
-    "- Be written in Markdown.\n"
-    "- Include backlinks to related articles (e.g., '[see trends](performance_trends.md)').\n"
-    "- Include a '## Sources' section listing Pinecone activity IDs used.\n"
-    "- If existing wiki content is provided, update it incrementally — preserve what is still valid, "
-    "revise what has changed, flag contradictions.\n"
-    "- Write in Spanish.\n"
-    "- Be concise but thorough."
-)
 
-
-def _get_pinecone_index() -> Any:
-    if _Pinecone is None:
-        raise RuntimeError("pinecone package is not installed")
-    api_key = os.environ.get("PINECONE_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("PINECONE_API_KEY environment variable is not set")
-    pc = _Pinecone(api_key=api_key)
-    index_name = os.environ.get("PINECONE_INDEX_NAME", "strava-agent")
-    return pc.Index(index_name)
-
-
-def _get_pinecone_namespace(athlete_id: int) -> str:
-    return str(_safe_int(athlete_id, 0))
-
-
-def _get_genai_client() -> Any:
-    if _genai is None:
-        raise RuntimeError("google-genai package is not installed")
-    return _genai.Client()
-
-
-def _generate_activity_summary(client: Any, activity_data: dict[str, Any]) -> str:
-    sanitized = {
-        k: v for k, v in activity_data.items()
-        if k not in {"map", "start_latlng", "end_latlng", "external_id", "upload_id", "upload_id_str"}
-    }
-    try:
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            config=_genai_types.GenerateContentConfig(
-                system_instruction=_PINECONE_SUMMARY_INSTRUCTION,
-            ),
-            contents=json.dumps(sanitized, ensure_ascii=False),
-        )
-        return (response.text or "").strip()[:300]
-    except Exception:  # noqa: BLE001
-        name = str(activity_data.get("name") or "Activity")
-        sport = str(activity_data.get("sport_type") or activity_data.get("type") or "")
-        dist = _safe_float(activity_data.get("distance"), 0.0) / 1000.0
-        return f"{name} ({sport}) - {dist:.1f} km"
-
-
-def _build_pinecone_metadata(activity: dict[str, Any], summary: str, athlete_id: int) -> dict[str, Any]:
+def _build_activity_metadata(activity: dict[str, Any], summary: str, athlete_id: int) -> dict[str, Any]:
     metadata: dict[str, Any] = {"athlete_id": athlete_id, "summary": summary}
     flat_fields = [
         "id", "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain",
@@ -349,303 +255,7 @@ def _build_pinecone_metadata(activity: dict[str, Any], summary: str, athlete_id:
     return metadata
 
 
-# ─── Stage 2: Pinecone Indexing ──────────────────────────────────────────────
-
-def run_pinecone_indexing(
-    athlete_ids_csv: str = "",
-    target_date: str = "",
-) -> dict[str, Any]:
-    artifact_store = ArtifactStore()
-    state_store = AthleteStateStore()
-
-    day = _normalize_date(target_date)
-    targets = _resolve_targets(state_store, athlete_ids_csv)
-
-    report: dict[str, Any] = {
-        "stage": "pinecone_indexing",
-        "target_date": day,
-        "athletes": [],
-        "errors": [],
-    }
-
-    try:
-        pc_index = _get_pinecone_index()
-        genai_client = _get_genai_client()
-    except RuntimeError as exc:
-        report["errors"].append({"error": str(exc)})
-        return report
-
-    for target in targets:
-        athlete_id = _safe_int(target.get("athlete_id"), 0)
-        if athlete_id <= 0:
-            continue
-
-        namespace = _get_pinecone_namespace(athlete_id)
-
-        paths = _latest_activity_paths_for_day(artifact_store, athlete_id, day)
-        if not paths:
-            report["athletes"].append(
-                {"athlete_id": athlete_id, "status": "skipped", "reason": "no_activities_for_date"}
-            )
-            continue
-
-        records: list[dict[str, Any]] = []
-        for path in paths:
-            activity = artifact_store.read_json(path)
-            if not isinstance(activity, dict):
-                continue
-
-            activity_id = _safe_int(activity.get("id"), 0)
-            if activity_id <= 0:
-                continue
-
-            summary = _generate_activity_summary(genai_client, activity)
-            metadata = _build_pinecone_metadata(activity, summary, athlete_id)
-
-            name = str(activity.get("name") or "")
-            sport = str(activity.get("sport_type") or activity.get("type") or "")
-            text_for_embedding = f"{name} {sport} {summary}"
-
-            records.append({
-                "_id": f"{athlete_id}_{activity_id}",
-                # Keep both keys to support existing indexes configured with either field map.
-                "text": text_for_embedding,
-                "_text": text_for_embedding,
-                **metadata,
-            })
-
-        research_input_path: str | None = None
-        if records:
-            research_input_path = (
-                f"{_RESEARCH_INPUT_PREFIX}/{day}/{athlete_id}/{_compact_timestamp()}_upsert_records.json"
-            )
-            artifact_store.write_json(
-                research_input_path,
-                {
-                    "athlete_id": athlete_id,
-                    "target_date": day,
-                    "records": records,
-                    "created_at": utc_now_iso(),
-                },
-            )
-
-        if records:
-            try:
-                pc_index.upsert_records(namespace=namespace, records=records)
-            except Exception as exc:  # noqa: BLE001
-                report["errors"].append({"athlete_id": athlete_id, "error": str(exc)})
-                continue
-
-        state_store.set_last_indexed_date(athlete_id, day)
-
-        report["athletes"].append({
-            "athlete_id": athlete_id,
-            "status": "indexed",
-            "records_upserted": len(records),
-            "research_input_path": research_input_path,
-        })
-
-    report["ok"] = not report["errors"]
-    report["finished_at"] = utc_now_iso()
-    return report
-
-
-# ─── Stage 3: RAG Wiki Pipeline (Karpathy approach) ─────────────────────────
-
-def _load_existing_wiki(artifact_store: ArtifactStore, athlete_id: int) -> dict[str, str]:
-    wiki: dict[str, str] = {}
-    for filename in _WIKI_ARTICLES:
-        text = artifact_store.read_text(f"wiki/athletes/{athlete_id}/{filename}")
-        if isinstance(text, str) and text.strip():
-            wiki[filename] = text
-    return wiki
-
-
-def _parse_wiki_articles(llm_output: str) -> dict[str, str]:
-    articles: dict[str, str] = {}
-    valid_filenames = set(_WIKI_ARTICLES)
-
-    parts = re.split(r"---ARTICLE:\s*(\S+)\s*---", llm_output)
-    # parts[0] is before first marker, then alternating: filename, content, filename, content...
-    for i in range(1, len(parts) - 1, 2):
-        filename = parts[i].strip()
-        content = parts[i + 1].strip()
-        if filename in valid_filenames and content:
-            articles[filename] = content
-
-    return articles
-
-
-def _pinecone_search(pc_index: Any, namespace: str, query: str, athlete_id: int, top_k: int = 10) -> list[dict[str, Any]]:
-    try:
-        results = pc_index.search_records(
-            namespace=namespace,
-            query={"inputs": {"text": query}, "top_k": top_k},
-            filter={"athlete_id": {"$eq": athlete_id}},
-        )
-        hits = []
-        result_data = results if isinstance(results, dict) else {}
-        for hit in result_data.get("result", {}).get("hits", []):
-            fields = hit.get("fields", {})
-            hits.append({
-                "id": hit.get("_id", ""),
-                "score": hit.get("_score", 0.0),
-                "summary": fields.get("summary", ""),
-                "name": fields.get("name", ""),
-                "sport_type": fields.get("sport_type", ""),
-                "distance": fields.get("distance", 0),
-                "moving_time": fields.get("moving_time", 0),
-                "start_date_local": fields.get("start_date_local", ""),
-            })
-        return hits
-    except Exception:  # noqa: BLE001
-        return []
-
-
-def _parse_questions(llm_text: str) -> list[str]:
-    questions = []
-    for line in llm_text.strip().splitlines():
-        line = line.strip().lstrip("0123456789.-) ")
-        if line and "?" in line:
-            questions.append(line)
-    return questions[:3] if questions else []
-
-
-def rag_wiki_pipeline(
-    athlete_ids_csv: str = "",
-    target_date: str = "",
-) -> dict[str, Any]:
-    artifact_store = ArtifactStore()
-    state_store = AthleteStateStore()
-    day = _normalize_date(target_date)
-    targets = _resolve_targets(state_store, athlete_ids_csv)
-
-    report: dict[str, Any] = {
-        "stage": "rag_wiki",
-        "target_date": day,
-        "athletes": [],
-        "errors": [],
-    }
-
-    try:
-        pc_index = _get_pinecone_index()
-        genai_client = _get_genai_client()
-    except RuntimeError as exc:
-        report["errors"].append({"error": str(exc)})
-        return report
-
-    for target in targets:
-        athlete_id = _safe_int(target.get("athlete_id"), 0)
-        if athlete_id <= 0:
-            continue
-
-        namespace = _get_pinecone_namespace(athlete_id)
-
-        existing_wiki = _load_existing_wiki(artifact_store, athlete_id)
-
-        # Iterative Pinecone querying
-        accumulated_context: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        questions = [
-            f"Resumen general de actividades recientes del atleta {athlete_id}",
-            f"Tipos de deporte y distancias del atleta {athlete_id}",
-        ]
-
-        rounds_executed = 0
-        for round_num in range(_MAX_WIKI_ROUNDS):
-            rounds_executed = round_num + 1
-            for q in questions:
-                hits = _pinecone_search(pc_index, namespace, q, athlete_id, top_k=10)
-                for hit in hits:
-                    hit_id = str(hit.get("id", ""))
-                    if hit_id and hit_id not in seen_ids:
-                        seen_ids.add(hit_id)
-                        accumulated_context.append(hit)
-
-            if round_num >= _MAX_WIKI_ROUNDS - 1:
-                break
-
-            # Ask LLM for follow-up questions or DONE
-            context_summary = json.dumps(
-                [{"name": h.get("name"), "sport": h.get("sport_type"), "summary": h.get("summary")} for h in accumulated_context[-20:]],
-                ensure_ascii=False,
-            )
-            try:
-                next_step = genai_client.models.generate_content(
-                    model="gemini-3-flash-preview",
-                    config=_genai_types.GenerateContentConfig(
-                        system_instruction=(
-                            "Eres un analista deportivo. Dado el contexto de actividades de un atleta, "
-                            "formula 2-3 preguntas de profundizacion para conocer mejor su rendimiento, "
-                            "tendencias y estado de fatiga. Si crees que tienes suficiente informacion "
-                            "para escribir un perfil completo, responde solo con la palabra DONE."
-                        ),
-                    ),
-                    contents=context_summary,
-                )
-                response_text = (next_step.text or "").strip()
-                if "DONE" in response_text.upper():
-                    break
-                questions = _parse_questions(response_text)
-                if not questions:
-                    break
-            except Exception:  # noqa: BLE001
-                break
-
-        if not accumulated_context:
-            report["athletes"].append({
-                "athlete_id": athlete_id,
-                "status": "skipped",
-                "reason": "no_context_from_pinecone",
-            })
-            continue
-
-        # Compile wiki
-        compile_input = json.dumps(
-            {
-                "athlete_id": athlete_id,
-                "context": accumulated_context,
-                "existing_wiki": existing_wiki,
-                "target_date": day,
-            },
-            ensure_ascii=False,
-        )
-
-        try:
-            wiki_response = genai_client.models.generate_content(
-                model="gemini-3-flash-preview",
-                config=_genai_types.GenerateContentConfig(
-                    system_instruction=_WIKI_COMPILER_PROMPT,
-                ),
-                contents=compile_input,
-            )
-            wiki_text = (wiki_response.text or "").strip()
-        except Exception as exc:  # noqa: BLE001
-            report["errors"].append({"athlete_id": athlete_id, "error": f"wiki_compilation_failed: {exc}"})
-            continue
-
-        articles = _parse_wiki_articles(wiki_text)
-        if not articles:
-            report["errors"].append({"athlete_id": athlete_id, "error": "wiki_parse_failed_no_articles"})
-            continue
-
-        for filename, content in articles.items():
-            artifact_store.write_text(f"wiki/athletes/{athlete_id}/{filename}", content)
-
-        report["athletes"].append({
-            "athlete_id": athlete_id,
-            "status": "compiled",
-            "articles_written": list(articles.keys()),
-            "rounds_executed": rounds_executed,
-            "context_documents": len(accumulated_context),
-        })
-
-    report["ok"] = not report["errors"]
-    report["finished_at"] = utc_now_iso()
-    return report
-
-
-# ─── Stage 4: Deep Research Wiki (without Pinecone retrieval) ───────────────
+# ─── Stage 4: Deep Research Wiki ────────────────────────────────────────────
 
 def _window_days(target_day: str, window_days: int) -> list[str]:
     try:
@@ -680,7 +290,7 @@ def _build_research_record_from_activity(activity: dict[str, Any], athlete_id: i
     name = str(activity.get("name") or "")
     sport = str(activity.get("sport_type") or activity.get("type") or "")
     summary = f"{name} ({sport})".strip()
-    metadata = _build_pinecone_metadata(activity, summary, athlete_id)
+    metadata = _build_activity_metadata(activity, summary, athlete_id)
     text_for_embedding = f"{name} {sport} {summary}".strip()
 
     return {
@@ -922,146 +532,6 @@ def research_wiki_pipeline(
     return report
 
 
-# ─── Stage: Pinecone Index Summary ──────────────────────────────────────────
-
-def _chunk_research_report(report_text: str, athlete_id: int, target_date: str) -> list[dict[str, Any]]:
-    """Split research.md by ## sections and return Pinecone-ready records."""
-    sections = re.split(r"(?=^## )", report_text, flags=re.MULTILINE)
-    records = []
-    for i, section in enumerate(sections):
-        text = section.strip()
-        if not text:
-            continue
-        first_line = text.split("\n", 1)[0].lstrip("# ").strip()
-        chunk = text[:4000]
-        records.append({
-            "_id": f"{athlete_id}_research_summary_{i}",
-            "text": chunk,
-            "_text": chunk,
-            "athlete_id": athlete_id,
-            "type": "research_summary",
-            "target_date": target_date,
-            "section": first_line,
-            "summary": chunk[:1500],
-        })
-    return records
-
-
-def run_pinecone_index_summary(
-    athlete_ids_csv: str = "",
-    target_date: str = "",
-) -> dict[str, Any]:
-    artifact_store = ArtifactStore()
-    state_store = AthleteStateStore()
-    day = _normalize_date(target_date)
-    targets = _resolve_targets(state_store, athlete_ids_csv)
-
-    report: dict[str, Any] = {
-        "stage": "pinecone_index_summary",
-        "target_date": day,
-        "athletes": [],
-        "errors": [],
-    }
-
-    try:
-        pc_index = _get_pinecone_index()
-    except RuntimeError as exc:
-        report["errors"].append({"error": str(exc)})
-        report["ok"] = False
-        report["finished_at"] = utc_now_iso()
-        return report
-
-    for target in targets:
-        athlete_id = _safe_int(target.get("athlete_id"), 0)
-        if athlete_id <= 0:
-            continue
-
-        namespace = _get_pinecone_namespace(athlete_id)
-        report_text = artifact_store.read_text(f"wiki/{athlete_id}/research.md")
-        if not isinstance(report_text, str) or not report_text.strip():
-            report["athletes"].append({
-                "athlete_id": athlete_id,
-                "status": "skipped",
-                "reason": "research_md_not_found",
-            })
-            continue
-
-        records = _chunk_research_report(report_text, athlete_id, day)
-        if not records:
-            report["athletes"].append({
-                "athlete_id": athlete_id,
-                "status": "skipped",
-                "reason": "no_chunks_generated",
-            })
-            continue
-
-        try:
-            pc_index.upsert_records(namespace=namespace, records=records)
-        except Exception as exc:  # noqa: BLE001
-            report["errors"].append({"athlete_id": athlete_id, "error": str(exc)})
-            continue
-
-        report["athletes"].append({
-            "athlete_id": athlete_id,
-            "status": "indexed",
-            "records_upserted": len(records),
-        })
-
-    report["ok"] = not report["errors"]
-    report["finished_at"] = utc_now_iso()
-    return report
-
-
-# ─── Query Layer (Pinecone) ─────────────────────────────────────────────────
-
-def run_query_layer(
-    question: str,
-    athlete_id: int,
-    top_k: int = 5,
-    target_date: str = "",
-) -> dict[str, Any]:
-    normalized_top_k = max(1, int(top_k))
-    normalized_target_date = target_date.strip() if isinstance(target_date, str) else ""
-
-    try:
-        pc_index = _get_pinecone_index()
-    except RuntimeError as exc:
-        return {
-            "mode": "error",
-            "athlete_id": athlete_id,
-            "hits": [],
-            "context": "",
-            "target_date": _normalize_date(normalized_target_date),
-            "error": str(exc),
-        }
-
-    namespace = _get_pinecone_namespace(athlete_id)
-    hits = _pinecone_search(pc_index, namespace, question, athlete_id, top_k=normalized_top_k)
-
-    formatted_hits = [
-        {
-            "score": hit.get("score", 0.0),
-            "type": "activity",
-            "source_path": f"pinecone/{hit.get('id', '')}",
-            "text": str(hit.get("summary", ""))[:1500],
-        }
-        for hit in hits
-    ]
-
-    context_text = "\n\n".join(
-        f"[{hit.get('type')}] {hit.get('text', '')}"
-        for hit in formatted_hits
-        if str(hit.get("text", "")).strip()
-    )
-
-    return {
-        "mode": "pinecone",
-        "athlete_id": athlete_id,
-        "hits": formatted_hits,
-        "context": context_text,
-        "target_date": _normalize_date(normalized_target_date),
-    }
-
 
 # ─── Daily Pipeline ─────────────────────────────────────────────────────────
 
@@ -1085,8 +555,6 @@ def run_daily_pipeline(
 
     connector = StravaConnector(state_store)
     ingestion_report = run_ingestion(connector, athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days)
-    indexing_report = run_pinecone_indexing(athlete_ids_csv=athlete_ids_csv, target_date=day)
-    wiki_report = rag_wiki_pipeline(athlete_ids_csv=athlete_ids_csv, target_date=day)
 
     pipeline_report = {
         "run_id": run_id,
@@ -1096,8 +564,6 @@ def run_daily_pipeline(
         "finished_at": utc_now_iso(),
         "steps": {
             "ingestion": ingestion_report,
-            "pinecone_indexing": indexing_report,
-            "rag_wiki": wiki_report,
         },
     }
 
@@ -1116,20 +582,6 @@ def run_ingestion_pipeline(athlete_ids_csv: str = "", lookback_days: int = 7) ->
     )
 
 
-def run_pinecone_indexing_pipeline(athlete_ids_csv: str = "", target_date: str = "") -> str:
-    return json.dumps(
-        run_pinecone_indexing(athlete_ids_csv=athlete_ids_csv, target_date=target_date),
-        ensure_ascii=False,
-    )
-
-
-def run_rag_wiki_pipeline(athlete_ids_csv: str = "", target_date: str = "") -> str:
-    return json.dumps(
-        rag_wiki_pipeline(athlete_ids_csv=athlete_ids_csv, target_date=target_date),
-        ensure_ascii=False,
-    )
-
-
 def run_research_wiki_pipeline(
     athlete_ids_csv: str = "",
     target_date: str = "",
@@ -1142,30 +594,6 @@ def run_research_wiki_pipeline(
             target_date=target_date,
             window_days=window_days,
             daily_run_id=daily_run_id,
-        ),
-        ensure_ascii=False,
-    )
-
-
-def run_query_pipeline(question: str, athlete_id: int = 0, top_k: int = 5, target_date: str = "") -> str:
-    resolved_athlete_id = _safe_int(athlete_id, 0)
-    if resolved_athlete_id <= 0:
-        return json.dumps(
-            {
-                "mode": "error",
-                "error": "athlete_id_required",
-                "context": "",
-                "hits": [],
-            },
-            ensure_ascii=False,
-        )
-
-    return json.dumps(
-        run_query_layer(
-            question=question,
-            athlete_id=resolved_athlete_id,
-            top_k=top_k,
-            target_date=target_date,
         ),
         ensure_ascii=False,
     )

@@ -45,10 +45,8 @@ def build_wiki_research_chat_agent(
     selected_model: Any,
     wiki_content: str,
     athlete_id: int,
-    pinecone_context: str | None = None,
 ) -> LlmAgent:
-    """Build an LlmAgent that answers user questions based on wiki research content
-    and optional RAG context retrieved from Pinecone."""
+    """Build an LlmAgent that answers user questions based on wiki research content."""
 
     # Escape braces so the ADK template engine does not interpret {variable}
     # patterns in the wiki content as context variables. This must be done via
@@ -58,31 +56,17 @@ def build_wiki_research_chat_agent(
 
     instruction = (
         "Eres un asistente experto en análisis de entrenamiento deportivo para atletas de Strava.\n\n"
-        f"Se te ha proporcionado el informe de investigación (wiki) del atleta con ID {athlete_id} "
-        "y, cuando está disponible, contexto adicional recuperado de la base de datos vectorial "
-        "(Pinecone RAG) relevante para la pregunta del usuario.\n\n"
-        "Tu tarea es responder basándote en AMBAS fuentes de información. "
-        "Si hay contradicción entre ellas, prioriza el informe wiki por ser más reciente y consolidado.\n\n"
+        f"Se te ha proporcionado el informe de investigación (wiki) del atleta con ID {athlete_id}.\n\n"
         "INFORME DE INVESTIGACIÓN (research.md):\n"
         "### INICIO DEL INFORME ###\n"
     )
     instruction += escaped_wiki
     instruction += "\n### FIN DEL INFORME ###\n"
 
-    if pinecone_context and pinecone_context.strip():
-        escaped_pinecone = pinecone_context.replace("{", "{{").replace("}", "}}")
-        instruction += (
-            "\n\nCONTEXTO ADICIONAL RECUPERADO DE PINECONE (RAG):\n"
-            "### INICIO DEL CONTEXTO RAG ###\n"
-        )
-        instruction += escaped_pinecone
-        instruction += "\n### FIN DEL CONTEXTO RAG ###\n"
-
     instruction += (
         "\n\nInstrucciones de respuesta:\n"
         "- Responde siempre en español.\n"
-        "- Integra la información del informe y del contexto RAG para dar una respuesta completa.\n"
-        "- Cita la fuente cuando sea relevante (informe wiki vs. actividades recientes).\n"
+        "- Basa tus respuestas en el informe proporcionado.\n"
         "- Si la pregunta no puede responderse con la información disponible, explícalo brevemente "
         "y sugiere al usuario que ejecute una nueva pipeline de investigación para actualizar el wiki.\n"
         "- No inventes datos ni tendencias que no estén respaldadas por las fuentes proporcionadas.\n"
