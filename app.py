@@ -1163,12 +1163,20 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
             ),
         }, 404
 
+    pinecone_context: str | None = None
+    try:
+        rag_result = run_query_layer(question=question, athlete_id=athlete_id, top_k=8)
+        pinecone_context = rag_result.get("context") or None
+    except Exception:  # noqa: BLE001
+        pass  # RAG is best-effort; proceed with wiki-only if Pinecone is unavailable
+
     try:
         selected_model = get_llm_provider(llm_provider=llm_param.strip().lower(), model_name=model_name)
         wiki_agent = build_wiki_research_chat_agent(
             selected_model=selected_model,
             wiki_content=wiki_content,
             athlete_id=athlete_id,
+            pinecone_context=pinecone_context,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
