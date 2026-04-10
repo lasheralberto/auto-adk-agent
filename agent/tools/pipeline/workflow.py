@@ -945,7 +945,15 @@ def research_wiki_pipeline(
 
     report["ok"] = not report["errors"]
     report["finished_at"] = utc_now_iso()
-    report["status"] = "success" if report["ok"] else "partial_failure"
+    all_skipped = bool(report["athletes"]) and all(
+        a.get("status") == "skipped" for a in report["athletes"]
+    )
+    if all_skipped:
+        report["status"] = "skipped"
+    elif report["ok"]:
+        report["status"] = "success"
+    else:
+        report["status"] = "partial_failure"
     state_store.record_pipeline_run(run_id, report)
     return report
 
