@@ -28,10 +28,11 @@ from agent.runner import run_agent, run_agent_streaming
 from agent.service.stream_utils import _stream_generator
 from agent.tools.pipeline import (
     research_wiki_pipeline,
+    run_query_layer,
     run_daily_pipeline,
     run_strava_ingestion,
 )
-from agent.tools.pipeline.storage_backend import AthleteStateStore
+from agent.tools.pipeline.storage_backend import AthleteStateStore, utc_now_iso
 from agent.agents.wiki_research_chat_agent import (
     build_wiki_research_chat_agent,
     read_wiki_research_md,
@@ -905,19 +906,47 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
             target_date=target_date,
         )
 
+        run_id = str(report.get("run_id") or "").strip()
+        queued_at = utc_now_iso()
+
         dispatch_payload = {
             "athlete_id": _to_optional_int(data.get("athlete_id")),
             "athlete_ids_csv": athlete_ids_csv,
-            "target_date": str(report.get("target_date") or target_date),
-            "daily_run_id": str(report.get("run_id") or ""),
+            "daily_run_id": run_id,
         }
+
+        report_steps = report.setdefault("steps", {})
+        if not isinstance(report_steps, dict):
+            report_steps = {}
+            report["steps"] = report_steps
+        report_steps.pop("research_wiki_dispatch", None)
+
+        report["status"] = "running"
+        report["updated_at"] = queued_at
+        report.pop("finished_at", None)
+
         try:
-            report["steps"]["research_wiki_dispatch"] = _dispatch_research_wiki_async(dispatch_payload)
-        except Exception as exc:  # noqa: BLE001
-            report["steps"]["research_wiki_dispatch"] = {
-                "status": "failed",
-                "error": str(exc),
+            dispatch_result = _dispatch_research_wiki_async(dispatch_payload)
+            report_steps["research_wiki"] = {
+                "stage": "research_wiki",
+                "status": "queued",
+                "queued_at": queued_at,
+                "endpoint": str(dispatch_result.get("endpoint") or ""),
             }
+        except Exception as exc:  # noqa: BLE001
+            report_steps["research_wiki"] = {
+                "stage": "research_wiki",
+                "status": "failed",
+                "endpoint": f"{_internal_pipeline_base_url()}/internal/pipeline/research-wiki",
+                "error": str(exc),
+                "finished_at": utc_now_iso(),
+            }
+            report["status"] = "partial_failure"
+            report["finished_at"] = utc_now_iso()
+            report["updated_at"] = report["finished_at"]
+
+        if run_id:
+            AthleteStateStore().record_pipeline_run(run_id, report)
 
         return report, 200
     except Exception as exc:  # noqa: BLE001
@@ -932,14 +961,14 @@ def run_research_wiki_endpoint() -> tuple[dict[str, Any], int]:
 
     data = request.get_json(silent=True) or {}
     athlete_ids_csv = _parse_athlete_ids_csv(data)
-    target_date = data.get("target_date") if isinstance(data.get("target_date"), str) else ""
     daily_run_id = str(data.get("daily_run_id") or "").strip()
+    max_activities = max(1, min(_to_int(data.get("max_activities"), 100), 500))
 
     try:
         report = research_wiki_pipeline(
             athlete_ids_csv=athlete_ids_csv,
-            target_date=target_date,
             daily_run_id=daily_run_id,
+            max_activities=max_activities,
         )
         return report, 200
     except Exception as exc:  # noqa: BLE001
@@ -967,10 +996,32 @@ def list_pipeline_runs_endpoint() -> tuple[dict[str, Any], int]:
     stage = (request.args.get("stage") or "").strip()
 
     state_store = AthleteStateStore()
-    runs = state_store.list_pipeline_runs(limit=limit)
+    runs = state_store.list_pipeline_runs(limit=100 if stage else limit)
 
     if stage:
-        runs = [r for r in runs if r.get("stage") == stage]
+        filtered_runs: list[dict[str, Any]] = []
+        for run in runs:
+            if run.get("stage") == stage:
+                filtered_runs.append(run)
+                continue
+
+            steps = run.get("steps")
+            if not isinstance(steps, dict):
+                continue
+
+            matched_step = steps.get(stage)
+            if not isinstance(matched_step, dict):
+                continue
+
+            normalized_run = dict(run)
+            step_status = matched_step.get("status")
+            if isinstance(step_status, str) and step_status.strip():
+                normalized_run["status"] = step_status.strip()
+            filtered_runs.append(normalized_run)
+
+        runs = filtered_runs
+
+    runs = runs[:limit]
 
     return {"runs": runs, "count": len(runs)}, 200
 
@@ -987,21 +1038,22 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
         return {"error": "Field 'stage' is required."}, 400
 
     athlete_ids_csv = _parse_athlete_ids_csv(data)
-    target_date = data.get("target_date") if isinstance(data.get("target_date"), str) else ""
 
     try:
         if stage == "ingestion":
-            lookback_days = max(1, min(_to_int(data.get("lookback_days"), 7), 30))
-            return run_strava_ingestion(athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days), 200
+            latest_limit = max(1, min(_to_int(data.get("latest_limit"), 10), 200))
+            return run_strava_ingestion(
+                athlete_ids_csv=athlete_ids_csv,
+                latest_limit=latest_limit,
+            ), 200
 
         if stage == "research_wiki":
-            window_days = max(2, min(_to_int(data.get("window_days"), 14), 60))
+            max_activities = max(1, min(_to_int(data.get("max_activities"), 100), 500))
             daily_run_id = str(data.get("daily_run_id") or "").strip()
             return research_wiki_pipeline(
                 athlete_ids_csv=athlete_ids_csv,
-                target_date=target_date,
-                window_days=window_days,
                 daily_run_id=daily_run_id,
+                max_activities=max_activities,
             ), 200
 
     except Exception as exc:  # noqa: BLE001

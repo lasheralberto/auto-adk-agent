@@ -3,9 +3,11 @@ from .workflow import (
     run_ingestion,
     run_strava_ingestion,
     research_wiki_pipeline,
+    run_query_layer,
     run_daily_pipeline,
     run_ingestion_pipeline,
     run_research_wiki_pipeline,
+    run_query_pipeline,
     run_daily_orchestration_pipeline,
 )
 
@@ -15,8 +17,10 @@ __all__ = [
     "run_ingestion",
     "run_strava_ingestion",
     "research_wiki_pipeline",
+    "run_query_layer",
     "run_daily_pipeline",
     "run_ingestion_pipeline",
     "run_research_wiki_pipeline",
+    "run_query_pipeline",
     "run_daily_orchestration_pipeline",
 ]

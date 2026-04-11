@@ -191,6 +191,9 @@ class AthleteStateStore:
     def __init__(self) -> None:
         self._athletes_collection = os.environ.get("FIRESTORE_ATHLETES_COLLECTION", "athletes")
         self._runs_collection = os.environ.get("FIRESTORE_PIPELINE_RUNS_COLLECTION", "pipeline_runs")
+        self._activity_runs_collection = os.environ.get(
+            "FIRESTORE_ACTIVITY_RUNS_COLLECTION", "activities_runs"
+        )
         self._state_path = (
             Path(os.environ.get("LOCAL_KNOWLEDGE_ROOT", ".knowledge_data"))
             .resolve()
@@ -224,17 +227,18 @@ class AthleteStateStore:
 
     def _load_local_state(self) -> dict[str, Any]:
         if not self._state_path.exists():
-            return {"athletes": {}, "pipeline_runs": {}}
+            return {"athletes": {}, "pipeline_runs": {}, "activity_runs": {}}
 
         try:
             payload = json.loads(self._state_path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
-                return {"athletes": {}, "pipeline_runs": {}}
+                return {"athletes": {}, "pipeline_runs": {}, "activity_runs": {}}
             payload.setdefault("athletes", {})
             payload.setdefault("pipeline_runs", {})
+            payload.setdefault("activity_runs", {})
             return payload
         except (json.JSONDecodeError, OSError):
-            return {"athletes": {}, "pipeline_runs": {}}
+            return {"athletes": {}, "pipeline_runs": {}, "activity_runs": {}}
 
     def _save_local_state(self, payload: dict[str, Any]) -> None:
         self._state_path.write_text(
@@ -510,3 +514,141 @@ class AthleteStateStore:
                 records.append({key: self._to_plain(value) for key, value in payload.items()})
         records.sort(key=lambda r: r.get("created_at") or "", reverse=True)
         return records[:max(1, int(limit))]
+
+    # ─── Activity runs (queue of Strava activities pending research) ────────
+
+    def upsert_activity_run(
+        self,
+        activity_id: int | str,
+        payload: dict[str, Any],
+    ) -> None:
+        activity_key = str(activity_id)
+        normalized_payload = {
+            key: self._to_plain(value)
+            for key, value in payload.items()
+        }
+        normalized_payload.setdefault("activity_id", _to_int(activity_id))
+        normalized_payload.setdefault("created_at", utc_now_iso())
+        normalized_payload["updated_at"] = utc_now_iso()
+
+        if self._client is not None:
+            try:
+                self._client.collection(self._activity_runs_collection).document(activity_key).set(
+                    normalized_payload,
+                    merge=True,
+                )
+                return
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
+
+        state = self._load_local_state()
+        activity_runs = state.setdefault("activity_runs", {})
+        current = activity_runs.get(activity_key, {})
+        if not isinstance(current, dict):
+            current = {}
+        current.update(normalized_payload)
+        activity_runs[activity_key] = current
+        self._save_local_state(state)
+
+    def get_activity_run(self, activity_id: int | str) -> dict[str, Any] | None:
+        activity_key = str(activity_id)
+
+        if self._client is not None:
+            try:
+                doc = self._client.collection(self._activity_runs_collection).document(activity_key).get()
+                if not doc.exists:
+                    return None
+                payload = doc.to_dict() or {}
+                if not isinstance(payload, dict):
+                    return None
+                return {key: self._to_plain(value) for key, value in payload.items()}
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
+
+        activity_runs = self._load_local_state().get("activity_runs", {})
+        payload = activity_runs.get(activity_key)
+        if not isinstance(payload, dict):
+            return None
+        return {key: self._to_plain(value) for key, value in payload.items()}
+
+    def list_activity_runs_by_status(
+        self,
+        status: str,
+        athlete_id: int | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        normalized_status = (status or "").strip()
+        capped_limit = max(1, int(limit))
+
+        if self._client is not None:
+            try:
+                query = self._client.collection(self._activity_runs_collection).where(
+                    "status", "==", normalized_status
+                )
+                if athlete_id is not None and int(athlete_id) > 0:
+                    query = query.where("athlete_id", "==", int(athlete_id))
+                query = query.limit(capped_limit)
+                for doc in query.stream():
+                    payload = doc.to_dict() or {}
+                    if not isinstance(payload, dict):
+                        continue
+                    normalized = {key: self._to_plain(value) for key, value in payload.items()}
+                    normalized.setdefault("activity_id", _to_int(doc.id))
+                    records.append(normalized)
+                return records
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
+
+        activity_runs = self._load_local_state().get("activity_runs", {})
+        for key, payload in activity_runs.items():
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("status") or "").strip() != normalized_status:
+                continue
+            if athlete_id is not None and int(athlete_id) > 0:
+                if _to_int(payload.get("athlete_id"), 0) != int(athlete_id):
+                    continue
+            normalized = {field: self._to_plain(value) for field, value in payload.items()}
+            normalized.setdefault("activity_id", _to_int(key))
+            records.append(normalized)
+
+        records.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return records[:capped_limit]
+
+    def update_activity_run_status(
+        self,
+        activity_id: int | str,
+        status: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        activity_key = str(activity_id)
+        payload: dict[str, Any] = {
+            "status": str(status),
+            "status_updated_at": utc_now_iso(),
+            "updated_at": utc_now_iso(),
+        }
+        if details:
+            payload["status_details"] = {
+                key: self._to_plain(value) for key, value in details.items()
+            }
+
+        if self._client is not None:
+            try:
+                self._client.collection(self._activity_runs_collection).document(activity_key).set(
+                    payload,
+                    merge=True,
+                )
+                return
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
+
+        state = self._load_local_state()
+        activity_runs = state.setdefault("activity_runs", {})
+        current = activity_runs.get(activity_key, {})
+        if not isinstance(current, dict):
+            current = {}
+        current.update(payload)
+        current.setdefault("activity_id", _to_int(activity_id))
+        activity_runs[activity_key] = current
+        self._save_local_state(state)

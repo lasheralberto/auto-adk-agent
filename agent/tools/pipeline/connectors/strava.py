@@ -86,3 +86,31 @@ class StravaConnector(DataConnector):
                 break
 
         return activities
+
+    def fetch_latest_activities(
+        self,
+        athlete_id: int,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Obtiene las ``limit`` actividades más recientes del atleta.
+
+        A diferencia de ``fetch_activities``, no aplica filtros temporales:
+        pide la primera página ordenada por fecha descendente que devuelve
+        Strava por defecto.
+        """
+        athlete = self._state_store.get_athlete(athlete_id)
+        if not athlete:
+            return []
+        access_token = str(athlete.get("access_token") or "").strip()
+        if not access_token:
+            return []
+
+        capped_limit = max(1, min(int(limit), 200))
+        payload = _strava_get(
+            access_token,
+            "/athlete/activities",
+            params={"page": 1, "per_page": capped_limit},
+        )
+        if not isinstance(payload, list):
+            return []
+        return [activity for activity in payload if isinstance(activity, dict)]

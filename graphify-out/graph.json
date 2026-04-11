@@ -6,10 +6,58 @@
     {
       "label": "__init__.py",
       "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\__init__.py",
+      "source_file": "agent\\tools\\pipeline\\connectors\\__init__.py",
       "source_location": "L1",
       "id": "init",
-      "community": 2
+      "community": 4
+    },
+    {
+      "label": "wiki_research_chat_agent.py",
+      "file_type": "code",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L1",
+      "id": "wiki_research_chat_agent",
+      "community": 10
+    },
+    {
+      "label": "_get_wiki_bucket_name()",
+      "file_type": "code",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L17",
+      "id": "wiki_research_chat_agent_get_wiki_bucket_name",
+      "community": 10
+    },
+    {
+      "label": "read_wiki_research_md()",
+      "file_type": "code",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L21",
+      "id": "wiki_research_chat_agent_read_wiki_research_md",
+      "community": 10
+    },
+    {
+      "label": "build_wiki_research_chat_agent()",
+      "file_type": "code",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L43",
+      "id": "wiki_research_chat_agent_build_wiki_research_chat_agent",
+      "community": 10
+    },
+    {
+      "label": "Read wiki/athlete_id/research.md from the GCS wiki bucket.      Returns the file",
+      "file_type": "rationale",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L22",
+      "id": "wiki_research_chat_agent_rationale_22",
+      "community": 10
+    },
+    {
+      "label": "Build an LlmAgent that answers user questions based on wiki research content.",
+      "file_type": "rationale",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L49",
+      "id": "wiki_research_chat_agent_rationale_49",
+      "community": 10
     },
     {
       "label": "app.py",
@@ -23,7 +71,7 @@
       "label": "_build_plan_react_kwargs()",
       "file_type": "code",
       "source_file": "agent\\app.py",
-      "source_location": "L31",
+      "source_location": "L26",
       "id": "app_build_plan_react_kwargs",
       "community": 0
     },
@@ -31,7 +79,7 @@
       "label": "_create_plan_react_planner_agent()",
       "file_type": "code",
       "source_file": "agent\\app.py",
-      "source_location": "L41",
+      "source_location": "L39",
       "id": "app_create_plan_react_planner_agent",
       "community": 0
     },
@@ -39,7 +87,7 @@
       "label": "_build_orchestrator_instruction()",
       "file_type": "code",
       "source_file": "agent\\app.py",
-      "source_location": "L60",
+      "source_location": "L58",
       "id": "app_build_orchestrator_instruction",
       "community": 0
     },
@@ -47,7 +95,7 @@
       "label": "build_orchestrator()",
       "file_type": "code",
       "source_file": "agent\\app.py",
-      "source_location": "L92",
+      "source_location": "L83",
       "id": "app_build_orchestrator",
       "community": 0
     },
@@ -55,7 +103,7 @@
       "label": "main()",
       "file_type": "code",
       "source_file": "agent\\app.py",
-      "source_location": "L179",
+      "source_location": "L154",
       "id": "app_main",
       "community": 0
     },
@@ -65,7 +113,7 @@
       "source_file": "agent\\config\\config.py",
       "source_location": "L1",
       "id": "config",
-      "community": 10
+      "community": 12
     },
     {
       "label": "_configure_vertex_backend()",
@@ -73,15 +121,15 @@
       "source_file": "agent\\config\\config.py",
       "source_location": "L13",
       "id": "config_configure_vertex_backend",
-      "community": 10
+      "community": 12
     },
     {
       "label": "get_llm_provider()",
       "file_type": "code",
       "source_file": "agent\\config\\config.py",
-      "source_location": "L34",
+      "source_location": "L32",
       "id": "config_get_llm_provider",
-      "community": 10
+      "community": 12
     },
     {
       "label": "Configure ADK/GenAI clients to use Vertex AI instead of API key mode.",
@@ -89,7 +137,7 @@
       "source_file": "agent\\config\\config.py",
       "source_location": "L14",
       "id": "config_rationale_14",
-      "community": 10
+      "community": 12
     },
     {
       "label": "envars.py",
@@ -97,7 +145,7 @@
       "source_file": "agent\\config\\envars.py",
       "source_location": "L1",
       "id": "envars",
-      "community": 9
+      "community": 11
     },
     {
       "label": "load_environment_from_sources()",
@@ -105,7 +153,7 @@
       "source_file": "agent\\config\\envars.py",
       "source_location": "L6",
       "id": "envars_load_environment_from_sources",
-      "community": 9
+      "community": 11
     },
     {
       "label": "get_setting()",
@@ -113,7 +161,7 @@
       "source_file": "agent\\config\\envars.py",
       "source_location": "L11",
       "id": "envars_get_setting",
-      "community": 9
+      "community": 11
     },
     {
       "label": "get_secret()",
@@ -121,7 +169,7 @@
       "source_file": "agent\\config\\envars.py",
       "source_location": "L15",
       "id": "envars_get_secret",
-      "community": 9
+      "community": 11
     },
     {
       "label": "Load environment variables from `.env`.",
@@ -129,7 +177,7 @@
       "source_file": "agent\\config\\envars.py",
       "source_location": "L7",
       "id": "envars_rationale_7",
-      "community": 9
+      "community": 11
     },
     {
       "label": "strava_rl.py",
@@ -137,7 +185,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L1",
       "id": "strava_rl",
-      "community": 3
+      "community": 2
     },
     {
       "label": "CyclingEnv",
@@ -145,7 +193,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L21",
       "id": "strava_rl_cyclingenv",
-      "community": 3
+      "community": 2
     },
     {
       "label": ".__init__()",
@@ -153,7 +201,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L83",
       "id": "strava_rl_cyclingenv_init",
-      "community": 3
+      "community": 2
     },
     {
       "label": "._init_from_strava()",
@@ -161,7 +209,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L128",
       "id": "strava_rl_cyclingenv_init_from_strava",
-      "community": 3
+      "community": 2
     },
     {
       "label": "._init_synthetic()",
@@ -169,7 +217,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L137",
       "id": "strava_rl_cyclingenv_init_synthetic",
-      "community": 3
+      "community": 2
     },
     {
       "label": ".reset()",
@@ -177,7 +225,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L149",
       "id": "strava_rl_cyclingenv_reset",
-      "community": 3
+      "community": 2
     },
     {
       "label": ".step()",
@@ -185,7 +233,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L165",
       "id": "strava_rl_cyclingenv_step",
-      "community": 3
+      "community": 2
     },
     {
       "label": "._compute_reward()",
@@ -193,7 +241,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L213",
       "id": "strava_rl_cyclingenv_compute_reward",
-      "community": 3
+      "community": 2
     },
     {
       "label": "._get_obs()",
@@ -201,7 +249,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L258",
       "id": "strava_rl_cyclingenv_get_obs",
-      "community": 3
+      "community": 2
     },
     {
       "label": "._get_info()",
@@ -209,7 +257,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L274",
       "id": "strava_rl_cyclingenv_get_info",
-      "community": 3
+      "community": 2
     },
     {
       "label": "._render_human()",
@@ -217,7 +265,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L287",
       "id": "strava_rl_cyclingenv_render_human",
-      "community": 3
+      "community": 2
     },
     {
       "label": ".render()",
@@ -225,7 +273,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L295",
       "id": "strava_rl_cyclingenv_render",
-      "community": 3
+      "community": 2
     },
     {
       "label": "StravaData",
@@ -233,7 +281,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L305",
       "id": "strava_rl_stravadata",
-      "community": 3
+      "community": 2
     },
     {
       "label": "build_authorization_url()",
@@ -241,7 +289,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L307",
       "id": "strava_rl_build_authorization_url",
-      "community": 3
+      "community": 2
     },
     {
       "label": "parse_authorization_response()",
@@ -249,7 +297,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L345",
       "id": "strava_rl_parse_authorization_response",
-      "community": 3
+      "community": 2
     },
     {
       "label": "parse_authorization_code()",
@@ -257,7 +305,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L371",
       "id": "strava_rl_parse_authorization_code",
-      "community": 3
+      "community": 2
     },
     {
       "label": "exchange_authorization_code()",
@@ -265,7 +313,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L375",
       "id": "strava_rl_exchange_authorization_code",
-      "community": 3
+      "community": 2
     },
     {
       "label": "refresh_access_token()",
@@ -273,7 +321,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L390",
       "id": "strava_rl_refresh_access_token",
-      "community": 3
+      "community": 2
     },
     {
       "label": "build_token_payload()",
@@ -281,7 +329,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L405",
       "id": "strava_rl_build_token_payload",
-      "community": 3
+      "community": 2
     },
     {
       "label": "complete_oauth()",
@@ -289,7 +337,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L422",
       "id": "strava_rl_complete_oauth",
-      "community": 3
+      "community": 2
     },
     {
       "label": "get_strava_tokens()",
@@ -297,7 +345,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L446",
       "id": "strava_rl_get_strava_tokens",
-      "community": 3
+      "community": 2
     },
     {
       "label": "get_strava_data()",
@@ -305,7 +353,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L450",
       "id": "strava_rl_get_strava_data",
-      "community": 3
+      "community": 2
     },
     {
       "label": "train_model()",
@@ -313,7 +361,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L580",
       "id": "strava_rl_train_model",
-      "community": 3
+      "community": 2
     },
     {
       "label": "make_predictions()",
@@ -321,7 +369,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L614",
       "id": "strava_rl_make_predictions",
-      "community": 3
+      "community": 2
     },
     {
       "label": "run_training_pipeline()",
@@ -329,7 +377,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L664",
       "id": "strava_rl_run_training_pipeline",
-      "community": 3
+      "community": 2
     },
     {
       "label": "Entorno Gymnasium para optimizar la planificaci\u00f3n del entrenamiento ciclista.",
@@ -337,7 +385,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L22",
       "id": "strava_rl_rationale_22",
-      "community": 3
+      "community": 2
     },
     {
       "label": "Par\u00e1metros\r         ----------\r         strava_data  : dict devuelto por get_str",
@@ -345,7 +393,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L89",
       "id": "strava_rl_rationale_89",
-      "community": 3
+      "community": 2
     },
     {
       "label": "Valores de un ciclista amateur de nivel medio para pruebas.",
@@ -353,7 +401,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L138",
       "id": "strava_rl_rationale_138",
-      "community": 3
+      "community": 2
     },
     {
       "label": "Funci\u00f3n de recompensa basada en principios de periodizaci\u00f3n:\r \r         1. Ganan",
@@ -361,7 +409,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L214",
       "id": "strava_rl_rationale_214",
-      "community": 3
+      "community": 2
     },
     {
       "label": "Obtiene datos del perfil del ciclista y sus actividades de Strava.\r         Calc",
@@ -369,7 +417,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L451",
       "id": "strava_rl_rationale_451",
-      "community": 11
+      "community": 13
     },
     {
       "label": "Entrena un modelo PPO sobre el entorno CyclingEnv y lo guarda en disco.",
@@ -377,7 +425,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L581",
       "id": "strava_rl_rationale_581",
-      "community": 12
+      "community": 14
     },
     {
       "label": "Carga el modelo guardado y realiza predicciones para los pr\u00f3ximos N d\u00edas.",
@@ -385,7 +433,7 @@
       "source_file": "agent\\models\\self\\strava_rl.py",
       "source_location": "L615",
       "id": "strava_rl_rationale_615",
-      "community": 13
+      "community": 15
     },
     {
       "label": "runner.py",
@@ -393,7 +441,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L1",
       "id": "runner",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_normalize_response_format()",
@@ -401,7 +449,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L28",
       "id": "runner_normalize_response_format",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_structured_output_enabled()",
@@ -409,7 +457,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L38",
       "id": "runner_structured_output_enabled",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_plan_react_sections()",
@@ -417,7 +465,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L42",
       "id": "runner_extract_plan_react_sections",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_strip_plan_react_tags()",
@@ -425,7 +473,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L57",
       "id": "runner_strip_plan_react_tags",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_format_tool_observation()",
@@ -433,7 +481,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L66",
       "id": "runner_format_tool_observation",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_build_structured_payload()",
@@ -441,7 +489,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L78",
       "id": "runner_build_structured_payload",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_response_text()",
@@ -449,7 +497,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L103",
       "id": "runner_extract_response_text",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_collect_new_section_blocks()",
@@ -457,7 +505,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L117",
       "id": "runner_collect_new_section_blocks",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_to_plain_value()",
@@ -465,7 +513,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L142",
       "id": "runner_to_plain_value",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_build_prompt_with_precomputed_context()",
@@ -473,7 +521,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L150",
       "id": "runner_build_prompt_with_precomputed_context",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_text()",
@@ -481,7 +529,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L154",
       "id": "runner_extract_text",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_normalize_tool_call_record()",
@@ -489,7 +537,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L166",
       "id": "runner_normalize_tool_call_record",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_nested_tool_calls()",
@@ -497,7 +545,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L189",
       "id": "runner_extract_nested_tool_calls",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_tool_calls()",
@@ -505,7 +553,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L213",
       "id": "runner_extract_tool_calls",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_append_unique_tool_calls()",
@@ -513,7 +561,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L256",
       "id": "runner_append_unique_tool_calls",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_collect_unique_tool_calls()",
@@ -521,7 +569,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L274",
       "id": "runner_collect_unique_tool_calls",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_delta()",
@@ -529,7 +577,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L298",
       "id": "runner_extract_delta",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_stringify_tool_output()",
@@ -537,7 +585,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L310",
       "id": "runner_stringify_tool_output",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_split_stream_text()",
@@ -545,7 +593,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L323",
       "id": "runner_split_stream_text",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_tool_output_events()",
@@ -553,7 +601,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L348",
       "id": "runner_extract_tool_output_events",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_try_parse_json_like()",
@@ -561,7 +609,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L382",
       "id": "runner_try_parse_json_like",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_coerce_score()",
@@ -569,7 +617,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L401",
       "id": "runner_coerce_score",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_confidence_score()",
@@ -577,7 +625,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L414",
       "id": "runner_extract_confidence_score",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_extract_tool_score_events()",
@@ -585,7 +633,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L442",
       "id": "runner_extract_tool_score_events",
-      "community": 2
+      "community": 1
     },
     {
       "label": "_run_once()",
@@ -593,7 +641,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L478",
       "id": "runner_run_once",
-      "community": 2
+      "community": 1
     },
     {
       "label": "stream_agent()",
@@ -601,7 +649,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L563",
       "id": "runner_stream_agent",
-      "community": 2
+      "community": 1
     },
     {
       "label": "run_agent_streaming()",
@@ -609,7 +657,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L593",
       "id": "runner_run_agent_streaming",
-      "community": 2
+      "community": 1
     },
     {
       "label": "run_agent()",
@@ -617,7 +665,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L772",
       "id": "runner_run_agent",
-      "community": 2
+      "community": 1
     },
     {
       "label": "Async generator that yields text chunks from agent events.",
@@ -625,7 +673,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L564",
       "id": "runner_rationale_564",
-      "community": 2
+      "community": 1
     },
     {
       "label": "Async generator that yields payload chunks with response/tool_calls.",
@@ -633,7 +681,7 @@
       "source_file": "agent\\runner.py",
       "source_location": "L598",
       "id": "runner_rationale_598",
-      "community": 2
+      "community": 1
     },
     {
       "label": "stream_utils.py",
@@ -641,7 +689,7 @@
       "source_file": "agent\\service\\stream_utils.py",
       "source_location": "L1",
       "id": "stream_utils",
-      "community": 8
+      "community": 9
     },
     {
       "label": "_sse()",
@@ -649,7 +697,7 @@
       "source_file": "agent\\service\\stream_utils.py",
       "source_location": "L9",
       "id": "stream_utils_sse",
-      "community": 8
+      "community": 9
     },
     {
       "label": "_stream_generator()",
@@ -657,7 +705,7 @@
       "source_file": "agent\\service\\stream_utils.py",
       "source_location": "L13",
       "id": "stream_utils_stream_generator",
-      "community": 8
+      "community": 9
     },
     {
       "label": "_rag_stream_generator()",
@@ -665,7 +713,7 @@
       "source_file": "agent\\service\\stream_utils.py",
       "source_location": "L52",
       "id": "stream_utils_rag_stream_generator",
-      "community": 8
+      "community": 9
     },
     {
       "label": "Helper to format SSE events.",
@@ -673,7 +721,7 @@
       "source_file": "agent\\service\\stream_utils.py",
       "source_location": "L10",
       "id": "stream_utils_rationale_10",
-      "community": 8
+      "community": 9
     },
     {
       "label": "Bridges the async run_agent_streaming generator into a sync Flask generator via",
@@ -681,7 +729,7 @@
       "source_file": "agent\\service\\stream_utils.py",
       "source_location": "L14",
       "id": "stream_utils_rationale_14",
-      "community": 8
+      "community": 9
     },
     {
       "label": "Generador que incluye el evento de RAG y luego el streaming original del orquest",
@@ -689,7 +737,183 @@
       "source_file": "agent\\service\\stream_utils.py",
       "source_location": "L53",
       "id": "stream_utils_rationale_53",
-      "community": 8
+      "community": 9
+    },
+    {
+      "label": "base.py",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L1",
+      "id": "base",
+      "community": 4
+    },
+    {
+      "label": "DataConnector",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L7",
+      "id": "base_dataconnector",
+      "community": 4
+    },
+    {
+      "label": "ABC",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "id": "abc",
+      "community": 4
+    },
+    {
+      "label": "connector_name()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L17",
+      "id": "base_connector_name",
+      "community": 4
+    },
+    {
+      "label": "list_syncable_athletes()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L22",
+      "id": "base_list_syncable_athletes",
+      "community": 4
+    },
+    {
+      "label": "get_athlete_profile()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L30",
+      "id": "base_get_athlete_profile",
+      "community": 4
+    },
+    {
+      "label": "fetch_activities()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L38",
+      "id": "base_fetch_activities",
+      "community": 4
+    },
+    {
+      "label": "Interfaz abstracta para conectores de obtenci\u00f3n de datos de actividad deportiva.",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L8",
+      "id": "base_rationale_8",
+      "community": 4
+    },
+    {
+      "label": "Identificador \u00fanico del conector (p. ej. 'strava', 'garmin').",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L18",
+      "id": "base_rationale_18",
+      "community": 16
+    },
+    {
+      "label": "Devuelve los atletas que pueden sincronizarse via este conector.          Cada e",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L23",
+      "id": "base_rationale_23",
+      "community": 17
+    },
+    {
+      "label": "Obtiene el perfil del atleta desde el servicio externo.          Devuelve el pay",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L31",
+      "id": "base_rationale_31",
+      "community": 18
+    },
+    {
+      "label": "Obtiene las actividades del atleta posteriores a ``after_epoch``.          Gesti",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L45",
+      "id": "base_rationale_45",
+      "community": 19
+    },
+    {
+      "label": "strava.py",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L1",
+      "id": "strava",
+      "community": 4
+    },
+    {
+      "label": "_strava_get()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L15",
+      "id": "strava_strava_get",
+      "community": 4
+    },
+    {
+      "label": "StravaConnector",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L29",
+      "id": "strava_stravaconnector",
+      "community": 4
+    },
+    {
+      "label": "DataConnector",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "id": "dataconnector",
+      "community": 4
+    },
+    {
+      "label": ".__init__()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L36",
+      "id": "strava_stravaconnector_init",
+      "community": 4
+    },
+    {
+      "label": "connector_name()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L40",
+      "id": "strava_connector_name",
+      "community": 4
+    },
+    {
+      "label": ".list_syncable_athletes()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L43",
+      "id": "strava_stravaconnector_list_syncable_athletes",
+      "community": 4
+    },
+    {
+      "label": ".get_athlete_profile()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L46",
+      "id": "strava_stravaconnector_get_athlete_profile",
+      "community": 4
+    },
+    {
+      "label": ".fetch_activities()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L59",
+      "id": "strava_stravaconnector_fetch_activities",
+      "community": 4
+    },
+    {
+      "label": "Conector para la API de Strava.      Encapsula autenticaci\u00f3n OAuth y las llamada",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L30",
+      "id": "strava_rationale_30",
+      "community": 4
     },
     {
       "label": "research_wiki_agent.py",
@@ -697,135 +921,79 @@
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
       "source_location": "L1",
       "id": "research_wiki_agent",
-      "community": 5
-    },
-    {
-      "label": "FollowUpTask",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L24",
-      "id": "research_wiki_agent_followuptask",
-      "community": 5
-    },
-    {
-      "label": "BaseModel",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "id": "basemodel",
-      "community": 5
-    },
-    {
-      "label": "ResearchFeedback",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L28",
-      "id": "research_wiki_agent_researchfeedback",
-      "community": 5
-    },
-    {
-      "label": "ResearchAgentResult",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L39",
-      "id": "research_wiki_agent_researchagentresult",
-      "community": 5
+      "community": 7
     },
     {
       "label": "_utc_now_iso()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L51",
+      "source_location": "L17",
       "id": "research_wiki_agent_utc_now_iso",
-      "community": 5
-    },
-    {
-      "label": "_extract_json_object()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L55",
-      "id": "research_wiki_agent_extract_json_object",
-      "community": 5
-    },
-    {
-      "label": "_gen_text()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L87",
-      "id": "research_wiki_agent_gen_text",
-      "community": 5
+      "community": 7
     },
     {
       "label": "_compact_record()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L102",
+      "source_location": "L21",
       "id": "research_wiki_agent_compact_record",
-      "community": 5
+      "community": 7
     },
     {
       "label": "_build_dataset_digest()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L129",
+      "source_location": "L42",
       "id": "research_wiki_agent_build_dataset_digest",
-      "community": 5
+      "community": 7
     },
     {
-      "label": "_generate_plan()",
+      "label": "_build_research_prompt()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L159",
-      "id": "research_wiki_agent_generate_plan",
-      "community": 5
+      "source_location": "L71",
+      "id": "research_wiki_agent_build_research_prompt",
+      "community": 7
     },
     {
-      "label": "_generate_sections()",
+      "label": "_post_interaction()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L172",
-      "id": "research_wiki_agent_generate_sections",
-      "community": 5
+      "source_location": "L138",
+      "id": "research_wiki_agent_post_interaction",
+      "community": 7
     },
     {
-      "label": "_generate_findings()",
+      "label": "_get_interaction()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L195",
-      "id": "research_wiki_agent_generate_findings",
-      "community": 5
+      "source_location": "L160",
+      "id": "research_wiki_agent_get_interaction",
+      "community": 7
     },
     {
-      "label": "_evaluate_findings()",
+      "label": "_poll_until_complete()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L221",
-      "id": "research_wiki_agent_evaluate_findings",
-      "community": 5
+      "source_location": "L170",
+      "id": "research_wiki_agent_poll_until_complete",
+      "community": 7
     },
     {
-      "label": "_refine_findings()",
+      "label": "_extract_final_report()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L256",
-      "id": "research_wiki_agent_refine_findings",
-      "community": 5
-    },
-    {
-      "label": "_compose_final_report()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L280",
-      "id": "research_wiki_agent_compose_final_report",
-      "community": 5
+      "source_location": "L187",
+      "id": "research_wiki_agent_extract_final_report",
+      "community": 7
     },
     {
       "label": "run_deep_research_wiki_agent()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L313",
+      "source_location": "L203",
       "id": "research_wiki_agent_run_deep_research_wiki_agent",
-      "community": 5
+      "community": 7
     },
     {
       "label": "storage_backend.py",
@@ -833,7 +1001,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L1",
       "id": "storage_backend",
-      "community": 4
+      "community": 5
     },
     {
       "label": "utc_now_iso()",
@@ -841,7 +1009,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L22",
       "id": "storage_backend_utc_now_iso",
-      "community": 4
+      "community": 5
     },
     {
       "label": "_to_int()",
@@ -849,7 +1017,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L26",
       "id": "storage_backend_to_int",
-      "community": 4
+      "community": 5
     },
     {
       "label": "ArtifactStore",
@@ -873,7 +1041,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L59",
       "id": "storage_backend_mode",
-      "community": 4
+      "community": 5
     },
     {
       "label": "._disable_gcs()",
@@ -961,7 +1129,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L190",
       "id": "storage_backend_athletestatestore",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".__init__()",
@@ -969,7 +1137,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L191",
       "id": "storage_backend_athletestatestore_init",
-      "community": 4
+      "community": 5
     },
     {
       "label": "._disable_firestore()",
@@ -977,7 +1145,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L222",
       "id": "storage_backend_athletestatestore_disable_firestore",
-      "community": 4
+      "community": 5
     },
     {
       "label": "._load_local_state()",
@@ -985,7 +1153,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L225",
       "id": "storage_backend_athletestatestore_load_local_state",
-      "community": 4
+      "community": 5
     },
     {
       "label": "._save_local_state()",
@@ -993,7 +1161,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L239",
       "id": "storage_backend_athletestatestore_save_local_state",
-      "community": 4
+      "community": 5
     },
     {
       "label": "._to_plain()",
@@ -1001,7 +1169,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L245",
       "id": "storage_backend_athletestatestore_to_plain",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".upsert_tokens()",
@@ -1009,7 +1177,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L259",
       "id": "storage_backend_athletestatestore_upsert_tokens",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".get_athlete()",
@@ -1017,7 +1185,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L318",
       "id": "storage_backend_athletestatestore_get_athlete",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".list_athletes_with_tokens()",
@@ -1025,7 +1193,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L342",
       "id": "storage_backend_athletestatestore_list_athletes_with_tokens",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".update_sync_state()",
@@ -1033,7 +1201,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L375",
       "id": "storage_backend_athletestatestore_update_sync_state",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".get_last_sync_epoch()",
@@ -1041,7 +1209,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L408",
       "id": "storage_backend_athletestatestore_get_last_sync_epoch",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".set_last_indexed_date()",
@@ -1049,7 +1217,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L420",
       "id": "storage_backend_athletestatestore_set_last_indexed_date",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".get_last_indexed_date()",
@@ -1057,7 +1225,7 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L444",
       "id": "storage_backend_athletestatestore_get_last_indexed_date",
-      "community": 4
+      "community": 5
     },
     {
       "label": ".record_pipeline_run()",
@@ -1065,7 +1233,23 @@
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L453",
       "id": "storage_backend_athletestatestore_record_pipeline_run",
-      "community": 4
+      "community": 5
+    },
+    {
+      "label": ".get_pipeline_run()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L472",
+      "id": "storage_backend_athletestatestore_get_pipeline_run",
+      "community": 5
+    },
+    {
+      "label": ".list_pipeline_runs()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L489",
+      "id": "storage_backend_athletestatestore_list_pipeline_runs",
+      "community": 5
     },
     {
       "label": "workflow.py",
@@ -1073,309 +1257,253 @@
       "source_file": "agent\\tools\\pipeline\\workflow.py",
       "source_location": "L1",
       "id": "workflow",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_safe_int()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L37",
+      "source_location": "L16",
       "id": "workflow_safe_int",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_safe_float()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L46",
+      "source_location": "L25",
       "id": "workflow_safe_float",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_normalize_date()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L55",
+      "source_location": "L34",
       "id": "workflow_normalize_date",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_compact_timestamp()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L61",
+      "source_location": "L40",
       "id": "workflow_compact_timestamp",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_activity_day()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L65",
+      "source_location": "L44",
       "id": "workflow_activity_day",
-      "community": 1
-    },
-    {
-      "label": "_strava_get()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L77",
-      "id": "workflow_strava_get",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_resolve_targets()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L91",
+      "source_location": "L56",
       "id": "workflow_resolve_targets",
-      "community": 1
+      "community": 3
     },
     {
-      "label": "_extract_activity_id_from_path()",
+      "label": "run_ingestion()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L112",
-      "id": "workflow_extract_activity_id_from_path",
-      "community": 1
-    },
-    {
-      "label": "_latest_activity_paths_for_day()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L120",
-      "id": "workflow_latest_activity_paths_for_day",
-      "community": 1
+      "source_location": "L76",
+      "id": "workflow_run_ingestion",
+      "community": 3
     },
     {
       "label": "run_strava_ingestion()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L139",
+      "source_location": "L209",
       "id": "workflow_run_strava_ingestion",
-      "community": 1
+      "community": 3
     },
     {
-      "label": "_get_pinecone_index()",
+      "label": "_build_activity_metadata()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L334",
-      "id": "workflow_get_pinecone_index",
-      "community": 1
-    },
-    {
-      "label": "_get_pinecone_namespace()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L345",
-      "id": "workflow_get_pinecone_namespace",
-      "community": 1
-    },
-    {
-      "label": "_get_genai_client()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L349",
-      "id": "workflow_get_genai_client",
-      "community": 1
-    },
-    {
-      "label": "_generate_activity_summary()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L355",
-      "id": "workflow_generate_activity_summary",
-      "community": 1
-    },
-    {
-      "label": "_build_pinecone_metadata()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L376",
-      "id": "workflow_build_pinecone_metadata",
-      "community": 1
-    },
-    {
-      "label": "run_pinecone_indexing()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L395",
-      "id": "workflow_run_pinecone_indexing",
-      "community": 1
-    },
-    {
-      "label": "_load_existing_wiki()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L496",
-      "id": "workflow_load_existing_wiki",
-      "community": 1
-    },
-    {
-      "label": "_parse_wiki_articles()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L505",
-      "id": "workflow_parse_wiki_articles",
-      "community": 1
-    },
-    {
-      "label": "_pinecone_search()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L520",
-      "id": "workflow_pinecone_search",
-      "community": 1
-    },
-    {
-      "label": "_parse_questions()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L546",
-      "id": "workflow_parse_questions",
-      "community": 1
-    },
-    {
-      "label": "rag_wiki_pipeline()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L555",
-      "id": "workflow_rag_wiki_pipeline",
-      "community": 1
+      "source_location": "L230",
+      "id": "workflow_build_activity_metadata",
+      "community": 3
     },
     {
       "label": "_window_days()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L691",
+      "source_location": "L249",
       "id": "workflow_window_days",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_latest_research_input_path_for_day()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L704",
+      "source_location": "L262",
       "id": "workflow_latest_research_input_path_for_day",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_build_research_record_from_activity()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L716",
+      "source_location": "L274",
       "id": "workflow_build_research_record_from_activity",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_load_research_records_for_day()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L735",
+      "source_location": "L293",
       "id": "workflow_load_research_records_for_day",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_average()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L769",
+      "source_location": "L311",
       "id": "workflow_average",
-      "community": 1
+      "community": 3
     },
     {
       "label": "_aggregate_research_metrics()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L776",
+      "source_location": "L318",
       "id": "workflow_aggregate_research_metrics",
-      "community": 1
+      "community": 3
+    },
+    {
+      "label": "_read_existing_research()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L354",
+      "id": "workflow_read_existing_research",
+      "community": 3
     },
     {
       "label": "_write_research_outputs()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L812",
+      "source_location": "L359",
       "id": "workflow_write_research_outputs",
-      "community": 1
+      "community": 3
     },
     {
       "label": "research_wiki_pipeline()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L867",
+      "source_location": "L372",
       "id": "workflow_research_wiki_pipeline",
-      "community": 1
-    },
-    {
-      "label": "run_query_layer()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L996",
-      "id": "workflow_run_query_layer",
-      "community": 1
+      "community": 3
     },
     {
       "label": "run_daily_pipeline()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1047",
+      "source_location": "L505",
       "id": "workflow_run_daily_pipeline",
-      "community": 1
+      "community": 3
     },
     {
       "label": "run_ingestion_pipeline()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1088",
+      "source_location": "L543",
       "id": "workflow_run_ingestion_pipeline",
-      "community": 1
-    },
-    {
-      "label": "run_pinecone_indexing_pipeline()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1095",
-      "id": "workflow_run_pinecone_indexing_pipeline",
-      "community": 1
-    },
-    {
-      "label": "run_rag_wiki_pipeline()",
-      "file_type": "code",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1102",
-      "id": "workflow_run_rag_wiki_pipeline",
-      "community": 1
+      "community": 3
     },
     {
       "label": "run_research_wiki_pipeline()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1109",
+      "source_location": "L552",
       "id": "workflow_run_research_wiki_pipeline",
-      "community": 1
+      "community": 3
+    },
+    {
+      "label": "_tokenize_for_query()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L572",
+      "id": "workflow_tokenize_for_query",
+      "community": 3
+    },
+    {
+      "label": "_split_markdown_for_query()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L582",
+      "id": "workflow_split_markdown_for_query",
+      "community": 3
+    },
+    {
+      "label": "_score_query_chunk()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L613",
+      "id": "workflow_score_query_chunk",
+      "community": 3
+    },
+    {
+      "label": "_build_wiki_hits()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L629",
+      "id": "workflow_build_wiki_hits",
+      "community": 3
+    },
+    {
+      "label": "run_query_layer()",
+      "file_type": "code",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L672",
+      "id": "workflow_run_query_layer",
+      "community": 3
     },
     {
       "label": "run_query_pipeline()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1126",
+      "source_location": "L717",
       "id": "workflow_run_query_pipeline",
-      "community": 1
+      "community": 3
     },
     {
       "label": "run_daily_orchestration_pipeline()",
       "file_type": "code",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1150",
+      "source_location": "L741",
       "id": "workflow_run_daily_orchestration_pipeline",
-      "community": 1
+      "community": 3
+    },
+    {
+      "label": "Pipeline de ingesta agn\u00f3stico del servicio.\r \r     Delega la obtenci\u00f3n de datos",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L83",
+      "id": "workflow_rationale_83",
+      "community": 4
+    },
+    {
+      "label": "Wrapper de compatibilidad que usa el conector de Strava.",
+      "file_type": "rationale",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L215",
+      "id": "workflow_rationale_215",
+      "community": 4
     },
     {
       "label": "_to_int()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L73",
+      "source_location": "L79",
       "id": "app_to_int",
       "community": 0
     },
@@ -1383,7 +1511,7 @@
       "label": "_to_optional_int()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L82",
+      "source_location": "L88",
       "id": "app_to_optional_int",
       "community": 0
     },
@@ -1391,7 +1519,7 @@
       "label": "_coerce_bool()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L91",
+      "source_location": "L97",
       "id": "app_coerce_bool",
       "community": 0
     },
@@ -1399,7 +1527,7 @@
       "label": "_extract_strava_access_token()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L105",
+      "source_location": "L111",
       "id": "app_extract_strava_access_token",
       "community": 0
     },
@@ -1407,7 +1535,7 @@
       "label": "_parse_athlete_ids_csv()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L120",
+      "source_location": "L126",
       "id": "app_parse_athlete_ids_csv",
       "community": 0
     },
@@ -1415,7 +1543,7 @@
       "label": "_normalize_redirect_uri()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L141",
+      "source_location": "L147",
       "id": "app_normalize_redirect_uri",
       "community": 0
     },
@@ -1423,7 +1551,7 @@
       "label": "_allowed_strava_redirect_uris()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L171",
+      "source_location": "L177",
       "id": "app_allowed_strava_redirect_uris",
       "community": 0
     },
@@ -1431,7 +1559,7 @@
       "label": "_is_allowed_redirect_uri()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L187",
+      "source_location": "L193",
       "id": "app_is_allowed_redirect_uri",
       "community": 0
     },
@@ -1439,7 +1567,7 @@
       "label": "_normalize_requested_strava_scope()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L191",
+      "source_location": "L197",
       "id": "app_normalize_requested_strava_scope",
       "community": 0
     },
@@ -1447,7 +1575,7 @@
       "label": "_state_b64encode()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L211",
+      "source_location": "L217",
       "id": "app_state_b64encode",
       "community": 0
     },
@@ -1455,7 +1583,7 @@
       "label": "_state_b64decode()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L215",
+      "source_location": "L221",
       "id": "app_state_b64decode",
       "community": 0
     },
@@ -1463,7 +1591,7 @@
       "label": "_get_strava_state_secret()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L220",
+      "source_location": "L226",
       "id": "app_get_strava_state_secret",
       "community": 0
     },
@@ -1471,7 +1599,7 @@
       "label": "_create_strava_oauth_state()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L227",
+      "source_location": "L233",
       "id": "app_create_strava_oauth_state",
       "community": 0
     },
@@ -1479,7 +1607,7 @@
       "label": "_validate_strava_oauth_state()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L240",
+      "source_location": "L246",
       "id": "app_validate_strava_oauth_state",
       "community": 0
     },
@@ -1487,7 +1615,7 @@
       "label": "_build_strava_auth_url()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L286",
+      "source_location": "L292",
       "id": "app_build_strava_auth_url",
       "community": 0
     },
@@ -1495,7 +1623,7 @@
       "label": "_get_strava_client_id()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L303",
+      "source_location": "L309",
       "id": "app_get_strava_client_id",
       "community": 0
     },
@@ -1503,7 +1631,7 @@
       "label": "_get_strava_client_secret()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L314",
+      "source_location": "L320",
       "id": "app_get_strava_client_secret",
       "community": 0
     },
@@ -1511,7 +1639,7 @@
       "label": "_exchange_strava_code()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L321",
+      "source_location": "L327",
       "id": "app_exchange_strava_code",
       "community": 0
     },
@@ -1519,7 +1647,7 @@
       "label": "_refresh_strava_token()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L337",
+      "source_location": "L343",
       "id": "app_refresh_strava_token",
       "community": 0
     },
@@ -1527,7 +1655,7 @@
       "label": "_internal_request_authorized()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L352",
+      "source_location": "L358",
       "id": "app_internal_request_authorized",
       "community": 0
     },
@@ -1535,7 +1663,7 @@
       "label": "_internal_pipeline_base_url()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L364",
+      "source_location": "L370",
       "id": "app_internal_pipeline_base_url",
       "community": 0
     },
@@ -1543,7 +1671,7 @@
       "label": "_dispatch_research_wiki_async()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L372",
+      "source_location": "L378",
       "id": "app_dispatch_research_wiki_async",
       "community": 0
     },
@@ -1551,7 +1679,7 @@
       "label": "_parse_chat_request()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L406",
+      "source_location": "L420",
       "id": "app_parse_chat_request",
       "community": 0
     },
@@ -1559,7 +1687,7 @@
       "label": "_normalize_chat_result()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L498",
+      "source_location": "L512",
       "id": "app_normalize_chat_result",
       "community": 0
     },
@@ -1567,7 +1695,7 @@
       "label": "health()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L532",
+      "source_location": "L546",
       "id": "app_health",
       "community": 0
     },
@@ -1575,7 +1703,7 @@
       "label": "list_athletes()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L540",
+      "source_location": "L554",
       "id": "app_list_athletes",
       "community": 0
     },
@@ -1583,7 +1711,7 @@
       "label": "query_layer_endpoint()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L567",
+      "source_location": "L581",
       "id": "app_query_layer_endpoint",
       "community": 0
     },
@@ -1591,7 +1719,7 @@
       "label": "chat_agent()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L593",
+      "source_location": "L607",
       "id": "app_chat_agent",
       "community": 0
     },
@@ -1599,7 +1727,7 @@
       "label": "start_strava_auth()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L716",
+      "source_location": "L730",
       "id": "app_start_strava_auth",
       "community": 0
     },
@@ -1607,7 +1735,7 @@
       "label": "exchange_strava_auth_code()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L755",
+      "source_location": "L769",
       "id": "app_exchange_strava_auth_code",
       "community": 0
     },
@@ -1615,7 +1743,7 @@
       "label": "refresh_strava_auth_token()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L830",
+      "source_location": "L844",
       "id": "app_refresh_strava_auth_token",
       "community": 0
     },
@@ -1623,7 +1751,7 @@
       "label": "run_daily_pipeline_endpoint()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L881",
+      "source_location": "L895",
       "id": "app_run_daily_pipeline_endpoint",
       "community": 0
     },
@@ -1631,15 +1759,31 @@
       "label": "run_research_wiki_endpoint()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L920",
+      "source_location": "L930",
       "id": "app_run_research_wiki_endpoint",
+      "community": 0
+    },
+    {
+      "label": "get_pipeline_run_endpoint()",
+      "file_type": "code",
+      "source_file": "app.py",
+      "source_location": "L951",
+      "id": "app_get_pipeline_run_endpoint",
+      "community": 0
+    },
+    {
+      "label": "list_pipeline_runs_endpoint()",
+      "file_type": "code",
+      "source_file": "app.py",
+      "source_location": "L963",
+      "id": "app_list_pipeline_runs_endpoint",
       "community": 0
     },
     {
       "label": "run_pipeline_stage_endpoint()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L944",
+      "source_location": "L981",
       "id": "app_run_pipeline_stage_endpoint",
       "community": 0
     },
@@ -1647,15 +1791,23 @@
       "label": "get_indexing_status()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L992",
+      "source_location": "L1021",
       "id": "app_get_indexing_status",
+      "community": 0
+    },
+    {
+      "label": "chat_wiki_agent()",
+      "file_type": "code",
+      "source_file": "app.py",
+      "source_location": "L1042",
+      "id": "app_chat_wiki_agent",
       "community": 0
     },
     {
       "label": "deprecated_legacy_routes()",
       "file_type": "code",
       "source_file": "app.py",
-      "source_location": "L1017",
+      "source_location": "L1123",
       "id": "app_deprecated_legacy_routes",
       "community": 0
     },
@@ -1665,7 +1817,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L1",
       "id": "setup_secrets",
-      "community": 7
+      "community": 8
     },
     {
       "label": "load_env()",
@@ -1673,7 +1825,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L28",
       "id": "setup_secrets_load_env",
-      "community": 7
+      "community": 8
     },
     {
       "label": "run()",
@@ -1681,7 +1833,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L40",
       "id": "setup_secrets_run",
-      "community": 7
+      "community": 8
     },
     {
       "label": "secret_exists()",
@@ -1689,7 +1841,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L53",
       "id": "setup_secrets_secret_exists",
-      "community": 7
+      "community": 8
     },
     {
       "label": "get_service_account()",
@@ -1697,7 +1849,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L58",
       "id": "setup_secrets_get_service_account",
-      "community": 7
+      "community": 8
     },
     {
       "label": "create_or_update_secrets()",
@@ -1705,7 +1857,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L73",
       "id": "setup_secrets_create_or_update_secrets",
-      "community": 7
+      "community": 8
     },
     {
       "label": "configure_iam()",
@@ -1713,7 +1865,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L98",
       "id": "setup_secrets_configure_iam",
-      "community": 7
+      "community": 8
     },
     {
       "label": "main()",
@@ -1721,7 +1873,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L117",
       "id": "setup_secrets_main",
-      "community": 7
+      "community": 8
     },
     {
       "label": "secrets.py \u2014 gesti\u00f3n de secretos en GCP Secret Manager para strava-api  Lee los",
@@ -1729,7 +1881,7 @@
       "source_file": "setup_secrets.py",
       "source_location": "L1",
       "id": "setup_secrets_rationale_1",
-      "community": 7
+      "community": 8
     }
   ],
   "links": [
@@ -1761,7 +1913,7 @@
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\__init__.py",
-      "source_location": "L1",
+      "source_location": "L2",
       "weight": 1.0,
       "_src": "init",
       "_tgt": "workflow",
@@ -1770,10 +1922,106 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\__init__.py",
+      "source_location": "L1",
+      "weight": 1.0,
+      "_src": "init",
+      "_tgt": "base",
+      "source": "init",
+      "target": "base",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\__init__.py",
+      "source_location": "L2",
+      "weight": 1.0,
+      "_src": "init",
+      "_tgt": "strava",
+      "source": "init",
+      "target": "strava",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L17",
+      "weight": 1.0,
+      "_src": "wiki_research_chat_agent",
+      "_tgt": "wiki_research_chat_agent_get_wiki_bucket_name",
+      "source": "wiki_research_chat_agent",
+      "target": "wiki_research_chat_agent_get_wiki_bucket_name",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L21",
+      "weight": 1.0,
+      "_src": "wiki_research_chat_agent",
+      "_tgt": "wiki_research_chat_agent_read_wiki_research_md",
+      "source": "wiki_research_chat_agent",
+      "target": "wiki_research_chat_agent_read_wiki_research_md",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L43",
+      "weight": 1.0,
+      "_src": "wiki_research_chat_agent",
+      "_tgt": "wiki_research_chat_agent_build_wiki_research_chat_agent",
+      "source": "wiki_research_chat_agent",
+      "target": "wiki_research_chat_agent_build_wiki_research_chat_agent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L27",
+      "weight": 0.8,
+      "_src": "wiki_research_chat_agent_read_wiki_research_md",
+      "_tgt": "wiki_research_chat_agent_get_wiki_bucket_name",
+      "source": "wiki_research_chat_agent_get_wiki_bucket_name",
+      "target": "wiki_research_chat_agent_read_wiki_research_md",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L22",
+      "weight": 1.0,
+      "_src": "wiki_research_chat_agent_rationale_22",
+      "_tgt": "wiki_research_chat_agent_read_wiki_research_md",
+      "source": "wiki_research_chat_agent_read_wiki_research_md",
+      "target": "wiki_research_chat_agent_rationale_22",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\agents\\wiki_research_chat_agent.py",
+      "source_location": "L49",
+      "weight": 1.0,
+      "_src": "wiki_research_chat_agent_rationale_49",
+      "_tgt": "wiki_research_chat_agent_build_wiki_research_chat_agent",
+      "source": "wiki_research_chat_agent_build_wiki_research_chat_agent",
+      "target": "wiki_research_chat_agent_rationale_49",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\app.py",
-      "source_location": "L31",
+      "source_location": "L26",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_build_plan_react_kwargs",
@@ -1785,7 +2033,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\app.py",
-      "source_location": "L41",
+      "source_location": "L39",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_create_plan_react_planner_agent",
@@ -1797,7 +2045,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\app.py",
-      "source_location": "L60",
+      "source_location": "L58",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_build_orchestrator_instruction",
@@ -1809,7 +2057,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\app.py",
-      "source_location": "L92",
+      "source_location": "L83",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_build_orchestrator",
@@ -1821,7 +2069,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\app.py",
-      "source_location": "L179",
+      "source_location": "L154",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_main",
@@ -1833,7 +2081,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L73",
+      "source_location": "L79",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_to_int",
@@ -1845,7 +2093,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L82",
+      "source_location": "L88",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_to_optional_int",
@@ -1857,7 +2105,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L91",
+      "source_location": "L97",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_coerce_bool",
@@ -1869,7 +2117,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L105",
+      "source_location": "L111",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_extract_strava_access_token",
@@ -1881,7 +2129,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L120",
+      "source_location": "L126",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_parse_athlete_ids_csv",
@@ -1893,7 +2141,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L141",
+      "source_location": "L147",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_normalize_redirect_uri",
@@ -1905,7 +2153,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L171",
+      "source_location": "L177",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_allowed_strava_redirect_uris",
@@ -1917,7 +2165,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L187",
+      "source_location": "L193",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_is_allowed_redirect_uri",
@@ -1929,7 +2177,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L191",
+      "source_location": "L197",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_normalize_requested_strava_scope",
@@ -1941,7 +2189,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L211",
+      "source_location": "L217",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_state_b64encode",
@@ -1953,7 +2201,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L215",
+      "source_location": "L221",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_state_b64decode",
@@ -1965,7 +2213,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L220",
+      "source_location": "L226",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_get_strava_state_secret",
@@ -1977,7 +2225,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L227",
+      "source_location": "L233",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_create_strava_oauth_state",
@@ -1989,7 +2237,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L240",
+      "source_location": "L246",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_validate_strava_oauth_state",
@@ -2001,7 +2249,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L286",
+      "source_location": "L292",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_build_strava_auth_url",
@@ -2013,7 +2261,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L303",
+      "source_location": "L309",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_get_strava_client_id",
@@ -2025,7 +2273,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L314",
+      "source_location": "L320",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_get_strava_client_secret",
@@ -2037,7 +2285,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L321",
+      "source_location": "L327",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_exchange_strava_code",
@@ -2049,7 +2297,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L337",
+      "source_location": "L343",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_refresh_strava_token",
@@ -2061,7 +2309,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L352",
+      "source_location": "L358",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_internal_request_authorized",
@@ -2073,7 +2321,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L364",
+      "source_location": "L370",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_internal_pipeline_base_url",
@@ -2085,7 +2333,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L372",
+      "source_location": "L378",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_dispatch_research_wiki_async",
@@ -2097,7 +2345,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L406",
+      "source_location": "L420",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_parse_chat_request",
@@ -2109,7 +2357,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L498",
+      "source_location": "L512",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_normalize_chat_result",
@@ -2121,7 +2369,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L532",
+      "source_location": "L546",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_health",
@@ -2133,7 +2381,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L540",
+      "source_location": "L554",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_list_athletes",
@@ -2145,7 +2393,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L567",
+      "source_location": "L581",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_query_layer_endpoint",
@@ -2157,7 +2405,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L593",
+      "source_location": "L607",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_chat_agent",
@@ -2169,7 +2417,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L716",
+      "source_location": "L730",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_start_strava_auth",
@@ -2181,7 +2429,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L755",
+      "source_location": "L769",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_exchange_strava_auth_code",
@@ -2193,7 +2441,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L830",
+      "source_location": "L844",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_refresh_strava_auth_token",
@@ -2205,7 +2453,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L881",
+      "source_location": "L895",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_run_daily_pipeline_endpoint",
@@ -2217,7 +2465,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L920",
+      "source_location": "L930",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_run_research_wiki_endpoint",
@@ -2229,7 +2477,31 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L944",
+      "source_location": "L951",
+      "weight": 1.0,
+      "_src": "app",
+      "_tgt": "app_get_pipeline_run_endpoint",
+      "source": "app",
+      "target": "app_get_pipeline_run_endpoint",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L963",
+      "weight": 1.0,
+      "_src": "app",
+      "_tgt": "app_list_pipeline_runs_endpoint",
+      "source": "app",
+      "target": "app_list_pipeline_runs_endpoint",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L981",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_run_pipeline_stage_endpoint",
@@ -2241,7 +2513,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L992",
+      "source_location": "L1021",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_get_indexing_status",
@@ -2253,7 +2525,19 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "app.py",
-      "source_location": "L1017",
+      "source_location": "L1042",
+      "weight": 1.0,
+      "_src": "app",
+      "_tgt": "app_chat_wiki_agent",
+      "source": "app",
+      "target": "app_chat_wiki_agent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app.py",
+      "source_location": "L1123",
       "weight": 1.0,
       "_src": "app",
       "_tgt": "app_deprecated_legacy_routes",
@@ -2265,7 +2549,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\app.py",
-      "source_location": "L42",
+      "source_location": "L40",
       "weight": 0.8,
       "_src": "app_create_plan_react_planner_agent",
       "_tgt": "app_build_plan_react_kwargs",
@@ -2277,7 +2561,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\app.py",
-      "source_location": "L157",
+      "source_location": "L135",
       "weight": 0.8,
       "_src": "app_build_orchestrator",
       "_tgt": "app_create_plan_react_planner_agent",
@@ -2289,7 +2573,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\app.py",
-      "source_location": "L170",
+      "source_location": "L145",
       "weight": 0.8,
       "_src": "app_build_orchestrator",
       "_tgt": "app_build_orchestrator_instruction",
@@ -2301,7 +2585,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\app.py",
-      "source_location": "L188",
+      "source_location": "L163",
       "weight": 0.8,
       "_src": "app_main",
       "_tgt": "app_build_orchestrator",
@@ -2325,7 +2609,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\config\\config.py",
-      "source_location": "L34",
+      "source_location": "L32",
       "weight": 1.0,
       "_src": "config",
       "_tgt": "config_get_llm_provider",
@@ -3798,46 +4082,358 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "contains",
+      "relation": "imports_from",
       "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L24",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L3",
       "weight": 1.0,
-      "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_followuptask",
-      "source": "research_wiki_agent",
-      "target": "research_wiki_agent_followuptask",
+      "_src": "base",
+      "_tgt": "abc",
+      "source": "base",
+      "target": "abc",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L28",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L7",
       "weight": 1.0,
-      "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_researchfeedback",
-      "source": "research_wiki_agent",
-      "target": "research_wiki_agent_researchfeedback",
+      "_src": "base",
+      "_tgt": "base_dataconnector",
+      "source": "base",
+      "target": "base_dataconnector",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L39",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L17",
       "weight": 1.0,
-      "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_researchagentresult",
-      "source": "research_wiki_agent",
-      "target": "research_wiki_agent_researchagentresult",
+      "_src": "base",
+      "_tgt": "base_connector_name",
+      "source": "base",
+      "target": "base_connector_name",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L22",
+      "weight": 1.0,
+      "_src": "base",
+      "_tgt": "base_list_syncable_athletes",
+      "source": "base",
+      "target": "base_list_syncable_athletes",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L30",
+      "weight": 1.0,
+      "_src": "base",
+      "_tgt": "base_get_athlete_profile",
+      "source": "base",
+      "target": "base_get_athlete_profile",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L38",
+      "weight": 1.0,
+      "_src": "base",
+      "_tgt": "base_fetch_activities",
+      "source": "base",
+      "target": "base_fetch_activities",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L8",
+      "weight": 1.0,
+      "_src": "strava",
+      "_tgt": "base",
+      "source": "base",
+      "target": "strava",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_src": "base_dataconnector",
+      "_tgt": "abc",
+      "source": "base_dataconnector",
+      "target": "abc",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\base.py",
+      "source_location": "L8",
+      "weight": 1.0,
+      "_src": "base_rationale_8",
+      "_tgt": "base_dataconnector",
+      "source": "base_dataconnector",
+      "target": "base_rationale_8",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L8",
+      "weight": 0.8,
+      "_src": "strava_stravaconnector",
+      "_tgt": "base_dataconnector",
+      "source": "base_dataconnector",
+      "target": "strava_stravaconnector",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L8",
+      "weight": 0.8,
+      "_src": "strava_rationale_30",
+      "_tgt": "base_dataconnector",
+      "source": "base_dataconnector",
+      "target": "strava_rationale_30",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L10",
+      "weight": 0.8,
+      "_src": "workflow_rationale_83",
+      "_tgt": "base_dataconnector",
+      "source": "base_dataconnector",
+      "target": "workflow_rationale_83",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L10",
+      "weight": 0.8,
+      "_src": "workflow_rationale_215",
+      "_tgt": "base_dataconnector",
+      "source": "base_dataconnector",
+      "target": "workflow_rationale_215",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_src": "strava",
+      "_tgt": "storage_backend",
+      "source": "strava",
+      "target": "storage_backend",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L15",
+      "weight": 1.0,
+      "_src": "strava",
+      "_tgt": "strava_strava_get",
+      "source": "strava",
+      "target": "strava_strava_get",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L29",
+      "weight": 1.0,
+      "_src": "strava",
+      "_tgt": "strava_stravaconnector",
+      "source": "strava",
+      "target": "strava_stravaconnector",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L40",
+      "weight": 1.0,
+      "_src": "strava",
+      "_tgt": "strava_connector_name",
+      "source": "strava",
+      "target": "strava_connector_name",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L54",
+      "weight": 0.8,
+      "_src": "strava_stravaconnector_get_athlete_profile",
+      "_tgt": "strava_strava_get",
+      "source": "strava_strava_get",
+      "target": "strava_stravaconnector_get_athlete_profile",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L77",
+      "weight": 0.8,
+      "_src": "strava_stravaconnector_fetch_activities",
+      "_tgt": "strava_strava_get",
+      "source": "strava_strava_get",
+      "target": "strava_stravaconnector_fetch_activities",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L29",
+      "weight": 1.0,
+      "_src": "strava_stravaconnector",
+      "_tgt": "dataconnector",
+      "source": "strava_stravaconnector",
+      "target": "dataconnector",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L36",
+      "weight": 1.0,
+      "_src": "strava_stravaconnector",
+      "_tgt": "strava_stravaconnector_init",
+      "source": "strava_stravaconnector",
+      "target": "strava_stravaconnector_init",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L43",
+      "weight": 1.0,
+      "_src": "strava_stravaconnector",
+      "_tgt": "strava_stravaconnector_list_syncable_athletes",
+      "source": "strava_stravaconnector",
+      "target": "strava_stravaconnector_list_syncable_athletes",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L46",
+      "weight": 1.0,
+      "_src": "strava_stravaconnector",
+      "_tgt": "strava_stravaconnector_get_athlete_profile",
+      "source": "strava_stravaconnector",
+      "target": "strava_stravaconnector_get_athlete_profile",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L59",
+      "weight": 1.0,
+      "_src": "strava_stravaconnector",
+      "_tgt": "strava_stravaconnector_fetch_activities",
+      "source": "strava_stravaconnector",
+      "target": "strava_stravaconnector_fetch_activities",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L30",
+      "weight": 1.0,
+      "_src": "strava_rationale_30",
+      "_tgt": "strava_stravaconnector",
+      "source": "strava_stravaconnector",
+      "target": "strava_rationale_30",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L7",
+      "weight": 0.8,
+      "_src": "strava_stravaconnector",
+      "_tgt": "storage_backend_athletestatestore",
+      "source": "strava_stravaconnector",
+      "target": "storage_backend_athletestatestore",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L11",
+      "weight": 0.8,
+      "_src": "workflow_rationale_83",
+      "_tgt": "strava_stravaconnector",
+      "source": "strava_stravaconnector",
+      "target": "workflow_rationale_83",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L11",
+      "weight": 0.8,
+      "_src": "workflow_rationale_215",
+      "_tgt": "strava_stravaconnector",
+      "source": "strava_stravaconnector",
+      "target": "workflow_rationale_215",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\connectors\\strava.py",
+      "source_location": "L7",
+      "weight": 0.8,
+      "_src": "strava_rationale_30",
+      "_tgt": "storage_backend_athletestatestore",
+      "source": "strava_rationale_30",
+      "target": "storage_backend_athletestatestore",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L51",
+      "source_location": "L17",
       "weight": 1.0,
       "_src": "research_wiki_agent",
       "_tgt": "research_wiki_agent_utc_now_iso",
@@ -3849,31 +4445,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L55",
-      "weight": 1.0,
-      "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_extract_json_object",
-      "source": "research_wiki_agent",
-      "target": "research_wiki_agent_extract_json_object",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L87",
-      "weight": 1.0,
-      "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_gen_text",
-      "source": "research_wiki_agent",
-      "target": "research_wiki_agent_gen_text",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L102",
+      "source_location": "L21",
       "weight": 1.0,
       "_src": "research_wiki_agent",
       "_tgt": "research_wiki_agent_compact_record",
@@ -3885,7 +4457,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L129",
+      "source_location": "L42",
       "weight": 1.0,
       "_src": "research_wiki_agent",
       "_tgt": "research_wiki_agent_build_dataset_digest",
@@ -3897,79 +4469,67 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L159",
+      "source_location": "L71",
       "weight": 1.0,
       "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_generate_plan",
+      "_tgt": "research_wiki_agent_build_research_prompt",
       "source": "research_wiki_agent",
-      "target": "research_wiki_agent_generate_plan",
+      "target": "research_wiki_agent_build_research_prompt",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L172",
+      "source_location": "L138",
       "weight": 1.0,
       "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_generate_sections",
+      "_tgt": "research_wiki_agent_post_interaction",
       "source": "research_wiki_agent",
-      "target": "research_wiki_agent_generate_sections",
+      "target": "research_wiki_agent_post_interaction",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L195",
+      "source_location": "L160",
       "weight": 1.0,
       "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_generate_findings",
+      "_tgt": "research_wiki_agent_get_interaction",
       "source": "research_wiki_agent",
-      "target": "research_wiki_agent_generate_findings",
+      "target": "research_wiki_agent_get_interaction",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L221",
+      "source_location": "L170",
       "weight": 1.0,
       "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_evaluate_findings",
+      "_tgt": "research_wiki_agent_poll_until_complete",
       "source": "research_wiki_agent",
-      "target": "research_wiki_agent_evaluate_findings",
+      "target": "research_wiki_agent_poll_until_complete",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L256",
+      "source_location": "L187",
       "weight": 1.0,
       "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_refine_findings",
+      "_tgt": "research_wiki_agent_extract_final_report",
       "source": "research_wiki_agent",
-      "target": "research_wiki_agent_refine_findings",
+      "target": "research_wiki_agent_extract_final_report",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L280",
-      "weight": 1.0,
-      "_src": "research_wiki_agent",
-      "_tgt": "research_wiki_agent_compose_final_report",
-      "source": "research_wiki_agent",
-      "target": "research_wiki_agent_compose_final_report",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L313",
+      "source_location": "L203",
       "weight": 1.0,
       "_src": "research_wiki_agent",
       "_tgt": "research_wiki_agent_run_deep_research_wiki_agent",
@@ -3990,70 +4550,10 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "inherits",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L24",
-      "weight": 1.0,
-      "_src": "research_wiki_agent_followuptask",
-      "_tgt": "basemodel",
-      "source": "research_wiki_agent_followuptask",
-      "target": "basemodel",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "inherits",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L28",
-      "weight": 1.0,
-      "_src": "research_wiki_agent_researchfeedback",
-      "_tgt": "basemodel",
-      "source": "basemodel",
-      "target": "research_wiki_agent_researchfeedback",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "inherits",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L39",
-      "weight": 1.0,
-      "_src": "research_wiki_agent_researchagentresult",
-      "_tgt": "basemodel",
-      "source": "basemodel",
-      "target": "research_wiki_agent_researchagentresult",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L253",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_evaluate_findings",
-      "_tgt": "research_wiki_agent_researchfeedback",
-      "source": "research_wiki_agent_researchfeedback",
-      "target": "research_wiki_agent_evaluate_findings",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L376",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_run_deep_research_wiki_agent",
-      "_tgt": "research_wiki_agent_researchagentresult",
-      "source": "research_wiki_agent_researchagentresult",
-      "target": "research_wiki_agent_run_deep_research_wiki_agent",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L385",
+      "source_location": "L240",
       "weight": 0.8,
       "_src": "research_wiki_agent_run_deep_research_wiki_agent",
       "_tgt": "research_wiki_agent_utc_now_iso",
@@ -4065,91 +4565,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L245",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_evaluate_findings",
-      "_tgt": "research_wiki_agent_extract_json_object",
-      "source": "research_wiki_agent_extract_json_object",
-      "target": "research_wiki_agent_evaluate_findings",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L169",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_generate_plan",
-      "_tgt": "research_wiki_agent_gen_text",
-      "source": "research_wiki_agent_gen_text",
-      "target": "research_wiki_agent_generate_plan",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L192",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_generate_sections",
-      "_tgt": "research_wiki_agent_gen_text",
-      "source": "research_wiki_agent_gen_text",
-      "target": "research_wiki_agent_generate_sections",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L218",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_generate_findings",
-      "_tgt": "research_wiki_agent_gen_text",
-      "source": "research_wiki_agent_gen_text",
-      "target": "research_wiki_agent_generate_findings",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L244",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_evaluate_findings",
-      "_tgt": "research_wiki_agent_gen_text",
-      "source": "research_wiki_agent_gen_text",
-      "target": "research_wiki_agent_evaluate_findings",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L277",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_refine_findings",
-      "_tgt": "research_wiki_agent_gen_text",
-      "source": "research_wiki_agent_gen_text",
-      "target": "research_wiki_agent_refine_findings",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L310",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_compose_final_report",
-      "_tgt": "research_wiki_agent_gen_text",
-      "source": "research_wiki_agent_gen_text",
-      "target": "research_wiki_agent_compose_final_report",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L153",
+      "source_location": "L66",
       "weight": 0.8,
       "_src": "research_wiki_agent_build_dataset_digest",
       "_tgt": "research_wiki_agent_compact_record",
@@ -4161,7 +4577,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L327",
+      "source_location": "L218",
       "weight": 0.8,
       "_src": "research_wiki_agent_run_deep_research_wiki_agent",
       "_tgt": "research_wiki_agent_build_dataset_digest",
@@ -4173,11 +4589,11 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L337",
+      "source_location": "L228",
       "weight": 0.8,
       "_src": "research_wiki_agent_run_deep_research_wiki_agent",
-      "_tgt": "research_wiki_agent_generate_plan",
-      "source": "research_wiki_agent_generate_plan",
+      "_tgt": "research_wiki_agent_build_research_prompt",
+      "source": "research_wiki_agent_build_research_prompt",
       "target": "research_wiki_agent_run_deep_research_wiki_agent",
       "confidence_score": 0.5
     },
@@ -4185,11 +4601,11 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L338",
+      "source_location": "L229",
       "weight": 0.8,
       "_src": "research_wiki_agent_run_deep_research_wiki_agent",
-      "_tgt": "research_wiki_agent_generate_sections",
-      "source": "research_wiki_agent_generate_sections",
+      "_tgt": "research_wiki_agent_post_interaction",
+      "source": "research_wiki_agent_post_interaction",
       "target": "research_wiki_agent_run_deep_research_wiki_agent",
       "confidence_score": 0.5
     },
@@ -4197,11 +4613,23 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L339",
+      "source_location": "L172",
+      "weight": 0.8,
+      "_src": "research_wiki_agent_poll_until_complete",
+      "_tgt": "research_wiki_agent_get_interaction",
+      "source": "research_wiki_agent_get_interaction",
+      "target": "research_wiki_agent_poll_until_complete",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
+      "source_location": "L230",
       "weight": 0.8,
       "_src": "research_wiki_agent_run_deep_research_wiki_agent",
-      "_tgt": "research_wiki_agent_generate_findings",
-      "source": "research_wiki_agent_generate_findings",
+      "_tgt": "research_wiki_agent_poll_until_complete",
+      "source": "research_wiki_agent_poll_until_complete",
       "target": "research_wiki_agent_run_deep_research_wiki_agent",
       "confidence_score": 0.5
     },
@@ -4209,35 +4637,11 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L349",
+      "source_location": "L231",
       "weight": 0.8,
       "_src": "research_wiki_agent_run_deep_research_wiki_agent",
-      "_tgt": "research_wiki_agent_evaluate_findings",
-      "source": "research_wiki_agent_evaluate_findings",
-      "target": "research_wiki_agent_run_deep_research_wiki_agent",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L359",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_run_deep_research_wiki_agent",
-      "_tgt": "research_wiki_agent_refine_findings",
-      "source": "research_wiki_agent_refine_findings",
-      "target": "research_wiki_agent_run_deep_research_wiki_agent",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\research_wiki_agent.py",
-      "source_location": "L367",
-      "weight": 0.8,
-      "_src": "research_wiki_agent_run_deep_research_wiki_agent",
-      "_tgt": "research_wiki_agent_compose_final_report",
-      "source": "research_wiki_agent_compose_final_report",
+      "_tgt": "research_wiki_agent_extract_final_report",
+      "source": "research_wiki_agent_extract_final_report",
       "target": "research_wiki_agent_run_deep_research_wiki_agent",
       "confidence_score": 0.5
     },
@@ -4516,6 +4920,30 @@
       "source": "storage_backend_artifactstore",
       "target": "storage_backend_artifactstore_list_paths",
       "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L13",
+      "weight": 0.8,
+      "_src": "workflow_rationale_83",
+      "_tgt": "storage_backend_artifactstore",
+      "source": "storage_backend_artifactstore",
+      "target": "workflow_rationale_83",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L13",
+      "weight": 0.8,
+      "_src": "workflow_rationale_215",
+      "_tgt": "storage_backend_artifactstore",
+      "source": "storage_backend_artifactstore",
+      "target": "workflow_rationale_215",
+      "confidence_score": 0.5
     },
     {
       "relation": "calls",
@@ -5022,6 +5450,54 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L472",
+      "weight": 1.0,
+      "_src": "storage_backend_athletestatestore",
+      "_tgt": "storage_backend_athletestatestore_get_pipeline_run",
+      "source": "storage_backend_athletestatestore",
+      "target": "storage_backend_athletestatestore_get_pipeline_run",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L489",
+      "weight": 1.0,
+      "_src": "storage_backend_athletestatestore",
+      "_tgt": "storage_backend_athletestatestore_list_pipeline_runs",
+      "source": "storage_backend_athletestatestore",
+      "target": "storage_backend_athletestatestore_list_pipeline_runs",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L13",
+      "weight": 0.8,
+      "_src": "workflow_rationale_83",
+      "_tgt": "storage_backend_athletestatestore",
+      "source": "storage_backend_athletestatestore",
+      "target": "workflow_rationale_83",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L13",
+      "weight": 0.8,
+      "_src": "workflow_rationale_215",
+      "_tgt": "storage_backend_athletestatestore",
+      "source": "storage_backend_athletestatestore",
+      "target": "workflow_rationale_215",
+      "confidence_score": 0.5
+    },
+    {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
@@ -5097,6 +5573,30 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L481",
+      "weight": 0.8,
+      "_src": "storage_backend_athletestatestore_get_pipeline_run",
+      "_tgt": "storage_backend_athletestatestore_disable_firestore",
+      "source": "storage_backend_athletestatestore_disable_firestore",
+      "target": "storage_backend_athletestatestore_get_pipeline_run",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L505",
+      "weight": 0.8,
+      "_src": "storage_backend_athletestatestore_list_pipeline_runs",
+      "_tgt": "storage_backend_athletestatestore_disable_firestore",
+      "source": "storage_backend_athletestatestore_disable_firestore",
+      "target": "storage_backend_athletestatestore_list_pipeline_runs",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L309",
       "weight": 0.8,
       "_src": "storage_backend_athletestatestore_upsert_tokens",
@@ -5163,6 +5663,30 @@
       "_tgt": "storage_backend_athletestatestore_load_local_state",
       "source": "storage_backend_athletestatestore_load_local_state",
       "target": "storage_backend_athletestatestore_record_pipeline_run",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L483",
+      "weight": 0.8,
+      "_src": "storage_backend_athletestatestore_get_pipeline_run",
+      "_tgt": "storage_backend_athletestatestore_load_local_state",
+      "source": "storage_backend_athletestatestore_load_local_state",
+      "target": "storage_backend_athletestatestore_get_pipeline_run",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L507",
+      "weight": 0.8,
+      "_src": "storage_backend_athletestatestore_list_pipeline_runs",
+      "_tgt": "storage_backend_athletestatestore_load_local_state",
+      "source": "storage_backend_athletestatestore_load_local_state",
+      "target": "storage_backend_athletestatestore_list_pipeline_runs",
       "confidence_score": 0.5
     },
     {
@@ -5253,6 +5777,30 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L479",
+      "weight": 0.8,
+      "_src": "storage_backend_athletestatestore_get_pipeline_run",
+      "_tgt": "storage_backend_athletestatestore_to_plain",
+      "source": "storage_backend_athletestatestore_to_plain",
+      "target": "storage_backend_athletestatestore_get_pipeline_run",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
+      "source_location": "L502",
+      "weight": 0.8,
+      "_src": "storage_backend_athletestatestore_list_pipeline_runs",
+      "_tgt": "storage_backend_athletestatestore_to_plain",
+      "source": "storage_backend_athletestatestore_to_plain",
+      "target": "storage_backend_athletestatestore_list_pipeline_runs",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\storage_backend.py",
       "source_location": "L263",
       "weight": 0.8,
       "_src": "storage_backend_athletestatestore_upsert_tokens",
@@ -5289,7 +5837,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L37",
+      "source_location": "L16",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_safe_int",
@@ -5301,7 +5849,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L46",
+      "source_location": "L25",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_safe_float",
@@ -5313,7 +5861,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L55",
+      "source_location": "L34",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_normalize_date",
@@ -5325,7 +5873,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L61",
+      "source_location": "L40",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_compact_timestamp",
@@ -5337,7 +5885,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L65",
+      "source_location": "L44",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_activity_day",
@@ -5349,19 +5897,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L77",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_strava_get",
-      "source": "workflow",
-      "target": "workflow_strava_get",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L91",
+      "source_location": "L56",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_resolve_targets",
@@ -5373,31 +5909,19 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L112",
+      "source_location": "L76",
       "weight": 1.0,
       "_src": "workflow",
-      "_tgt": "workflow_extract_activity_id_from_path",
+      "_tgt": "workflow_run_ingestion",
       "source": "workflow",
-      "target": "workflow_extract_activity_id_from_path",
+      "target": "workflow_run_ingestion",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L120",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_latest_activity_paths_for_day",
-      "source": "workflow",
-      "target": "workflow_latest_activity_paths_for_day",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L139",
+      "source_location": "L209",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_run_strava_ingestion",
@@ -5409,139 +5933,19 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L334",
+      "source_location": "L230",
       "weight": 1.0,
       "_src": "workflow",
-      "_tgt": "workflow_get_pinecone_index",
+      "_tgt": "workflow_build_activity_metadata",
       "source": "workflow",
-      "target": "workflow_get_pinecone_index",
+      "target": "workflow_build_activity_metadata",
       "confidence_score": 1.0
     },
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L345",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_get_pinecone_namespace",
-      "source": "workflow",
-      "target": "workflow_get_pinecone_namespace",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L349",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_get_genai_client",
-      "source": "workflow",
-      "target": "workflow_get_genai_client",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L355",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_generate_activity_summary",
-      "source": "workflow",
-      "target": "workflow_generate_activity_summary",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L376",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_build_pinecone_metadata",
-      "source": "workflow",
-      "target": "workflow_build_pinecone_metadata",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L395",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_run_pinecone_indexing",
-      "source": "workflow",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L496",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_load_existing_wiki",
-      "source": "workflow",
-      "target": "workflow_load_existing_wiki",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L505",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_parse_wiki_articles",
-      "source": "workflow",
-      "target": "workflow_parse_wiki_articles",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L520",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_pinecone_search",
-      "source": "workflow",
-      "target": "workflow_pinecone_search",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L546",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_parse_questions",
-      "source": "workflow",
-      "target": "workflow_parse_questions",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L555",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_rag_wiki_pipeline",
-      "source": "workflow",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L691",
+      "source_location": "L249",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_window_days",
@@ -5553,7 +5957,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L704",
+      "source_location": "L262",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_latest_research_input_path_for_day",
@@ -5565,7 +5969,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L716",
+      "source_location": "L274",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_build_research_record_from_activity",
@@ -5577,7 +5981,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L735",
+      "source_location": "L293",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_load_research_records_for_day",
@@ -5589,7 +5993,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L769",
+      "source_location": "L311",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_average",
@@ -5601,7 +6005,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L776",
+      "source_location": "L318",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_aggregate_research_metrics",
@@ -5613,7 +6017,19 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L812",
+      "source_location": "L354",
+      "weight": 1.0,
+      "_src": "workflow",
+      "_tgt": "workflow_read_existing_research",
+      "source": "workflow",
+      "target": "workflow_read_existing_research",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L359",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_write_research_outputs",
@@ -5625,7 +6041,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L867",
+      "source_location": "L372",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_research_wiki_pipeline",
@@ -5637,19 +6053,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L996",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_run_query_layer",
-      "source": "workflow",
-      "target": "workflow_run_query_layer",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1047",
+      "source_location": "L505",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_run_daily_pipeline",
@@ -5661,7 +6065,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1088",
+      "source_location": "L543",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_run_ingestion_pipeline",
@@ -5673,31 +6077,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1095",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_run_pinecone_indexing_pipeline",
-      "source": "workflow",
-      "target": "workflow_run_pinecone_indexing_pipeline",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1102",
-      "weight": 1.0,
-      "_src": "workflow",
-      "_tgt": "workflow_run_rag_wiki_pipeline",
-      "source": "workflow",
-      "target": "workflow_run_rag_wiki_pipeline",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1109",
+      "source_location": "L552",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_run_research_wiki_pipeline",
@@ -5709,7 +6089,67 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1126",
+      "source_location": "L572",
+      "weight": 1.0,
+      "_src": "workflow",
+      "_tgt": "workflow_tokenize_for_query",
+      "source": "workflow",
+      "target": "workflow_tokenize_for_query",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L582",
+      "weight": 1.0,
+      "_src": "workflow",
+      "_tgt": "workflow_split_markdown_for_query",
+      "source": "workflow",
+      "target": "workflow_split_markdown_for_query",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L613",
+      "weight": 1.0,
+      "_src": "workflow",
+      "_tgt": "workflow_score_query_chunk",
+      "source": "workflow",
+      "target": "workflow_score_query_chunk",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L629",
+      "weight": 1.0,
+      "_src": "workflow",
+      "_tgt": "workflow_build_wiki_hits",
+      "source": "workflow",
+      "target": "workflow_build_wiki_hits",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L672",
+      "weight": 1.0,
+      "_src": "workflow",
+      "_tgt": "workflow_run_query_layer",
+      "source": "workflow",
+      "target": "workflow_run_query_layer",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L717",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_run_query_pipeline",
@@ -5721,7 +6161,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1150",
+      "source_location": "L741",
       "weight": 1.0,
       "_src": "workflow",
       "_tgt": "workflow_run_daily_orchestration_pipeline",
@@ -5733,7 +6173,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L95",
+      "source_location": "L60",
       "weight": 0.8,
       "_src": "workflow_resolve_targets",
       "_tgt": "workflow_safe_int",
@@ -5745,67 +6185,19 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L117",
+      "source_location": "L110",
       "weight": 0.8,
-      "_src": "workflow_extract_activity_id_from_path",
+      "_src": "workflow_run_ingestion",
       "_tgt": "workflow_safe_int",
       "source": "workflow_safe_int",
-      "target": "workflow_extract_activity_id_from_path",
+      "target": "workflow_run_ingestion",
       "confidence_score": 0.5
     },
     {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L162",
-      "weight": 0.8,
-      "_src": "workflow_run_strava_ingestion",
-      "_tgt": "workflow_safe_int",
-      "source": "workflow_safe_int",
-      "target": "workflow_run_strava_ingestion",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L346",
-      "weight": 0.8,
-      "_src": "workflow_get_pinecone_namespace",
-      "_tgt": "workflow_safe_int",
-      "source": "workflow_safe_int",
-      "target": "workflow_get_pinecone_namespace",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L420",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_safe_int",
-      "source": "workflow_safe_int",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L579",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_safe_int",
-      "source": "workflow_safe_int",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L717",
+      "source_location": "L275",
       "weight": 0.8,
       "_src": "workflow_build_research_record_from_activity",
       "_tgt": "workflow_safe_int",
@@ -5817,7 +6209,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L906",
+      "source_location": "L411",
       "weight": 0.8,
       "_src": "workflow_research_wiki_pipeline",
       "_tgt": "workflow_safe_int",
@@ -5829,7 +6221,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1127",
+      "source_location": "L718",
       "weight": 0.8,
       "_src": "workflow_run_query_pipeline",
       "_tgt": "workflow_safe_int",
@@ -5841,19 +6233,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L372",
-      "weight": 0.8,
-      "_src": "workflow_generate_activity_summary",
-      "_tgt": "workflow_safe_float",
-      "source": "workflow_safe_float",
-      "target": "workflow_generate_activity_summary",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L794",
+      "source_location": "L336",
       "weight": 0.8,
       "_src": "workflow_aggregate_research_metrics",
       "_tgt": "workflow_safe_float",
@@ -5865,43 +6245,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L236",
-      "weight": 0.8,
-      "_src": "workflow_run_strava_ingestion",
-      "_tgt": "workflow_normalize_date",
-      "source": "workflow_normalize_date",
-      "target": "workflow_run_strava_ingestion",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L402",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_normalize_date",
-      "source": "workflow_normalize_date",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L561",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_normalize_date",
-      "source": "workflow_normalize_date",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L876",
+      "source_location": "L381",
       "weight": 0.8,
       "_src": "workflow_research_wiki_pipeline",
       "_tgt": "workflow_normalize_date",
@@ -5913,19 +6257,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1013",
-      "weight": 0.8,
-      "_src": "workflow_run_query_layer",
-      "_tgt": "workflow_normalize_date",
-      "source": "workflow_normalize_date",
-      "target": "workflow_run_query_layer",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1055",
+      "source_location": "L513",
       "weight": 0.8,
       "_src": "workflow_run_daily_pipeline",
       "_tgt": "workflow_normalize_date",
@@ -5937,91 +6269,55 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L176",
+      "source_location": "L690",
       "weight": 0.8,
-      "_src": "workflow_run_strava_ingestion",
-      "_tgt": "workflow_compact_timestamp",
-      "source": "workflow_compact_timestamp",
-      "target": "workflow_run_strava_ingestion",
+      "_src": "workflow_run_query_layer",
+      "_tgt": "workflow_normalize_date",
+      "source": "workflow_normalize_date",
+      "target": "workflow_run_query_layer",
       "confidence_score": 0.5
     },
     {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L461",
+      "source_location": "L117",
       "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
+      "_src": "workflow_run_ingestion",
       "_tgt": "workflow_compact_timestamp",
       "source": "workflow_compact_timestamp",
-      "target": "workflow_run_pinecone_indexing",
+      "target": "workflow_run_ingestion",
       "confidence_score": 0.5
     },
     {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L226",
+      "source_location": "L154",
       "weight": 0.8,
-      "_src": "workflow_run_strava_ingestion",
+      "_src": "workflow_run_ingestion",
       "_tgt": "workflow_activity_day",
       "source": "workflow_activity_day",
-      "target": "workflow_run_strava_ingestion",
+      "target": "workflow_run_ingestion",
       "confidence_score": 0.5
     },
     {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L187",
+      "source_location": "L92",
       "weight": 0.8,
-      "_src": "workflow_run_strava_ingestion",
-      "_tgt": "workflow_strava_get",
-      "source": "workflow_strava_get",
-      "target": "workflow_run_strava_ingestion",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L148",
-      "weight": 0.8,
-      "_src": "workflow_run_strava_ingestion",
+      "_src": "workflow_run_ingestion",
       "_tgt": "workflow_resolve_targets",
       "source": "workflow_resolve_targets",
-      "target": "workflow_run_strava_ingestion",
+      "target": "workflow_run_ingestion",
       "confidence_score": 0.5
     },
     {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L403",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_resolve_targets",
-      "source": "workflow_resolve_targets",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L562",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_resolve_targets",
-      "source": "workflow_resolve_targets",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L878",
+      "source_location": "L383",
       "weight": 0.8,
       "_src": "workflow_research_wiki_pipeline",
       "_tgt": "workflow_resolve_targets",
@@ -6033,191 +6329,11 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L130",
+      "source_location": "L156",
       "weight": 0.8,
-      "_src": "workflow_latest_activity_paths_for_day",
-      "_tgt": "workflow_extract_activity_id_from_path",
-      "source": "workflow_extract_activity_id_from_path",
-      "target": "workflow_latest_activity_paths_for_day",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L426",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_latest_activity_paths_for_day",
-      "source": "workflow_latest_activity_paths_for_day",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L756",
-      "weight": 0.8,
-      "_src": "workflow_load_research_records_for_day",
-      "_tgt": "workflow_latest_activity_paths_for_day",
-      "source": "workflow_latest_activity_paths_for_day",
-      "target": "workflow_load_research_records_for_day",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1065",
-      "weight": 0.8,
-      "_src": "workflow_run_daily_pipeline",
-      "_tgt": "workflow_run_strava_ingestion",
-      "source": "workflow_run_strava_ingestion",
-      "target": "workflow_run_daily_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1090",
-      "weight": 0.8,
-      "_src": "workflow_run_ingestion_pipeline",
-      "_tgt": "workflow_run_strava_ingestion",
-      "source": "workflow_run_strava_ingestion",
-      "target": "workflow_run_ingestion_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L413",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_get_pinecone_index",
-      "source": "workflow_get_pinecone_index",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L572",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_get_pinecone_index",
-      "source": "workflow_get_pinecone_index",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1006",
-      "weight": 0.8,
-      "_src": "workflow_run_query_layer",
-      "_tgt": "workflow_get_pinecone_index",
-      "source": "workflow_get_pinecone_index",
-      "target": "workflow_run_query_layer",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L424",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_get_pinecone_namespace",
-      "source": "workflow_get_pinecone_namespace",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L583",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_get_pinecone_namespace",
-      "source": "workflow_get_pinecone_namespace",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1017",
-      "weight": 0.8,
-      "_src": "workflow_run_query_layer",
-      "_tgt": "workflow_get_pinecone_namespace",
-      "source": "workflow_get_pinecone_namespace",
-      "target": "workflow_run_query_layer",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L414",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_get_genai_client",
-      "source": "workflow_get_genai_client",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L573",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_get_genai_client",
-      "source": "workflow_get_genai_client",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L443",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_generate_activity_summary",
-      "source": "workflow_generate_activity_summary",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L444",
-      "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing",
-      "_tgt": "workflow_build_pinecone_metadata",
-      "source": "workflow_build_pinecone_metadata",
-      "target": "workflow_run_pinecone_indexing",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L724",
-      "weight": 0.8,
-      "_src": "workflow_build_research_record_from_activity",
-      "_tgt": "workflow_build_pinecone_metadata",
-      "source": "workflow_build_pinecone_metadata",
+      "_src": "workflow_run_ingestion",
+      "_tgt": "workflow_build_research_record_from_activity",
+      "source": "workflow_run_ingestion",
       "target": "workflow_build_research_record_from_activity",
       "confidence_score": 0.5
     },
@@ -6225,11 +6341,23 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1066",
+      "source_location": "L218",
+      "weight": 0.8,
+      "_src": "workflow_run_strava_ingestion",
+      "_tgt": "workflow_run_ingestion",
+      "source": "workflow_run_ingestion",
+      "target": "workflow_run_strava_ingestion",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L524",
       "weight": 0.8,
       "_src": "workflow_run_daily_pipeline",
-      "_tgt": "workflow_run_pinecone_indexing",
-      "source": "workflow_run_pinecone_indexing",
+      "_tgt": "workflow_run_ingestion",
+      "source": "workflow_run_ingestion",
       "target": "workflow_run_daily_pipeline",
       "confidence_score": 0.5
     },
@@ -6237,103 +6365,55 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1097",
+      "source_location": "L547",
       "weight": 0.8,
-      "_src": "workflow_run_pinecone_indexing_pipeline",
-      "_tgt": "workflow_run_pinecone_indexing",
-      "source": "workflow_run_pinecone_indexing",
-      "target": "workflow_run_pinecone_indexing_pipeline",
+      "_src": "workflow_run_ingestion_pipeline",
+      "_tgt": "workflow_run_ingestion",
+      "source": "workflow_run_ingestion",
+      "target": "workflow_run_ingestion_pipeline",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L83",
+      "weight": 1.0,
+      "_src": "workflow_rationale_83",
+      "_tgt": "workflow_run_ingestion",
+      "source": "workflow_run_ingestion",
+      "target": "workflow_rationale_83",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L215",
+      "weight": 1.0,
+      "_src": "workflow_rationale_215",
+      "_tgt": "workflow_run_strava_ingestion",
+      "source": "workflow_run_strava_ingestion",
+      "target": "workflow_rationale_215",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L282",
+      "weight": 0.8,
+      "_src": "workflow_build_research_record_from_activity",
+      "_tgt": "workflow_build_activity_metadata",
+      "source": "workflow_build_activity_metadata",
+      "target": "workflow_build_research_record_from_activity",
       "confidence_score": 0.5
     },
     {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L585",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_load_existing_wiki",
-      "source": "workflow_load_existing_wiki",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L668",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_parse_wiki_articles",
-      "source": "workflow_parse_wiki_articles",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L599",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_pinecone_search",
-      "source": "workflow_pinecone_search",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1018",
-      "weight": 0.8,
-      "_src": "workflow_run_query_layer",
-      "_tgt": "workflow_pinecone_search",
-      "source": "workflow_pinecone_search",
-      "target": "workflow_run_query_layer",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L630",
-      "weight": 0.8,
-      "_src": "workflow_rag_wiki_pipeline",
-      "_tgt": "workflow_parse_questions",
-      "source": "workflow_parse_questions",
-      "target": "workflow_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1067",
-      "weight": 0.8,
-      "_src": "workflow_run_daily_pipeline",
-      "_tgt": "workflow_rag_wiki_pipeline",
-      "source": "workflow_rag_wiki_pipeline",
-      "target": "workflow_run_daily_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1104",
-      "weight": 0.8,
-      "_src": "workflow_run_rag_wiki_pipeline",
-      "_tgt": "workflow_rag_wiki_pipeline",
-      "source": "workflow_rag_wiki_pipeline",
-      "target": "workflow_run_rag_wiki_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L928",
+      "source_location": "L431",
       "weight": 0.8,
       "_src": "workflow_research_wiki_pipeline",
       "_tgt": "workflow_window_days",
@@ -6345,7 +6425,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L742",
+      "source_location": "L298",
       "weight": 0.8,
       "_src": "workflow_load_research_records_for_day",
       "_tgt": "workflow_latest_research_input_path_for_day",
@@ -6357,19 +6437,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L760",
-      "weight": 0.8,
-      "_src": "workflow_load_research_records_for_day",
-      "_tgt": "workflow_build_research_record_from_activity",
-      "source": "workflow_build_research_record_from_activity",
-      "target": "workflow_load_research_records_for_day",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L910",
+      "source_location": "L415",
       "weight": 0.8,
       "_src": "workflow_research_wiki_pipeline",
       "_tgt": "workflow_load_research_records_for_day",
@@ -6381,7 +6449,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L805",
+      "source_location": "L347",
       "weight": 0.8,
       "_src": "workflow_aggregate_research_metrics",
       "_tgt": "workflow_average",
@@ -6393,7 +6461,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L942",
+      "source_location": "L442",
       "weight": 0.8,
       "_src": "workflow_research_wiki_pipeline",
       "_tgt": "workflow_aggregate_research_metrics",
@@ -6405,7 +6473,31 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L964",
+      "source_location": "L445",
+      "weight": 0.8,
+      "_src": "workflow_research_wiki_pipeline",
+      "_tgt": "workflow_read_existing_research",
+      "source": "workflow_read_existing_research",
+      "target": "workflow_research_wiki_pipeline",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L683",
+      "weight": 0.8,
+      "_src": "workflow_run_query_layer",
+      "_tgt": "workflow_read_existing_research",
+      "source": "workflow_read_existing_research",
+      "target": "workflow_run_query_layer",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L467",
       "weight": 0.8,
       "_src": "workflow_research_wiki_pipeline",
       "_tgt": "workflow_write_research_outputs",
@@ -6417,7 +6509,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1116",
+      "source_location": "L559",
       "weight": 0.8,
       "_src": "workflow_run_research_wiki_pipeline",
       "_tgt": "workflow_research_wiki_pipeline",
@@ -6429,19 +6521,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1140",
-      "weight": 0.8,
-      "_src": "workflow_run_query_pipeline",
-      "_tgt": "workflow_run_query_layer",
-      "source": "workflow_run_query_layer",
-      "target": "workflow_run_query_pipeline",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "agent\\tools\\pipeline\\workflow.py",
-      "source_location": "L1157",
+      "source_location": "L748",
       "weight": 0.8,
       "_src": "workflow_run_daily_orchestration_pipeline",
       "_tgt": "workflow_run_daily_pipeline",
@@ -6452,8 +6532,68 @@
     {
       "relation": "calls",
       "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L637",
+      "weight": 0.8,
+      "_src": "workflow_build_wiki_hits",
+      "_tgt": "workflow_tokenize_for_query",
+      "source": "workflow_tokenize_for_query",
+      "target": "workflow_build_wiki_hits",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L638",
+      "weight": 0.8,
+      "_src": "workflow_build_wiki_hits",
+      "_tgt": "workflow_split_markdown_for_query",
+      "source": "workflow_split_markdown_for_query",
+      "target": "workflow_build_wiki_hits",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L645",
+      "weight": 0.8,
+      "_src": "workflow_build_wiki_hits",
+      "_tgt": "workflow_score_query_chunk",
+      "source": "workflow_score_query_chunk",
+      "target": "workflow_build_wiki_hits",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L695",
+      "weight": 0.8,
+      "_src": "workflow_run_query_layer",
+      "_tgt": "workflow_build_wiki_hits",
+      "source": "workflow_build_wiki_hits",
+      "target": "workflow_run_query_layer",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "agent\\tools\\pipeline\\workflow.py",
+      "source_location": "L731",
+      "weight": 0.8,
+      "_src": "workflow_run_query_pipeline",
+      "_tgt": "workflow_run_query_layer",
+      "source": "workflow_run_query_layer",
+      "target": "workflow_run_query_pipeline",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L125",
+      "source_location": "L131",
       "weight": 0.8,
       "_src": "app_parse_athlete_ids_csv",
       "_tgt": "app_to_int",
@@ -6465,7 +6605,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L435",
+      "source_location": "L449",
       "weight": 0.8,
       "_src": "app_parse_chat_request",
       "_tgt": "app_to_int",
@@ -6477,7 +6617,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L571",
+      "source_location": "L585",
       "weight": 0.8,
       "_src": "app_query_layer_endpoint",
       "_tgt": "app_to_int",
@@ -6489,31 +6629,19 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L888",
+      "source_location": "L967",
       "weight": 0.8,
-      "_src": "app_run_daily_pipeline_endpoint",
+      "_src": "app_list_pipeline_runs_endpoint",
       "_tgt": "app_to_int",
       "source": "app_to_int",
-      "target": "app_run_daily_pipeline_endpoint",
+      "target": "app_list_pipeline_runs_endpoint",
       "confidence_score": 0.5
     },
     {
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L927",
-      "weight": 0.8,
-      "_src": "app_run_research_wiki_endpoint",
-      "_tgt": "app_to_int",
-      "source": "app_to_int",
-      "target": "app_run_research_wiki_endpoint",
-      "confidence_score": 0.5
-    },
-    {
-      "relation": "calls",
-      "confidence": "INFERRED",
-      "source_file": "app.py",
-      "source_location": "L958",
+      "source_location": "L995",
       "weight": 0.8,
       "_src": "app_run_pipeline_stage_endpoint",
       "_tgt": "app_to_int",
@@ -6525,7 +6653,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L134",
+      "source_location": "L140",
       "weight": 0.8,
       "_src": "app_parse_athlete_ids_csv",
       "_tgt": "app_to_optional_int",
@@ -6537,7 +6665,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L269",
+      "source_location": "L275",
       "weight": 0.8,
       "_src": "app_validate_strava_oauth_state",
       "_tgt": "app_to_optional_int",
@@ -6549,7 +6677,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L456",
+      "source_location": "L470",
       "weight": 0.8,
       "_src": "app_parse_chat_request",
       "_tgt": "app_to_optional_int",
@@ -6561,7 +6689,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L570",
+      "source_location": "L584",
       "weight": 0.8,
       "_src": "app_query_layer_endpoint",
       "_tgt": "app_to_optional_int",
@@ -6573,7 +6701,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L814",
+      "source_location": "L828",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_to_optional_int",
@@ -6585,7 +6713,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L861",
+      "source_location": "L875",
       "weight": 0.8,
       "_src": "app_refresh_strava_auth_token",
       "_tgt": "app_to_optional_int",
@@ -6597,7 +6725,19 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L993",
+      "source_location": "L910",
+      "weight": 0.8,
+      "_src": "app_run_daily_pipeline_endpoint",
+      "_tgt": "app_to_optional_int",
+      "source": "app_to_optional_int",
+      "target": "app_run_daily_pipeline_endpoint",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "app.py",
+      "source_location": "L1022",
       "weight": 0.8,
       "_src": "app_get_indexing_status",
       "_tgt": "app_to_optional_int",
@@ -6609,7 +6749,19 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L430",
+      "source_location": "L1049",
+      "weight": 0.8,
+      "_src": "app_chat_wiki_agent",
+      "_tgt": "app_to_optional_int",
+      "source": "app_to_optional_int",
+      "target": "app_chat_wiki_agent",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "app.py",
+      "source_location": "L444",
       "weight": 0.8,
       "_src": "app_parse_chat_request",
       "_tgt": "app_extract_strava_access_token",
@@ -6621,7 +6773,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L886",
+      "source_location": "L900",
       "weight": 0.8,
       "_src": "app_run_daily_pipeline_endpoint",
       "_tgt": "app_parse_athlete_ids_csv",
@@ -6633,7 +6785,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L925",
+      "source_location": "L935",
       "weight": 0.8,
       "_src": "app_run_research_wiki_endpoint",
       "_tgt": "app_parse_athlete_ids_csv",
@@ -6645,7 +6797,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L953",
+      "source_location": "L990",
       "weight": 0.8,
       "_src": "app_run_pipeline_stage_endpoint",
       "_tgt": "app_parse_athlete_ids_csv",
@@ -6657,7 +6809,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L181",
+      "source_location": "L187",
       "weight": 0.8,
       "_src": "app_allowed_strava_redirect_uris",
       "_tgt": "app_normalize_redirect_uri",
@@ -6669,7 +6821,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L265",
+      "source_location": "L271",
       "weight": 0.8,
       "_src": "app_validate_strava_oauth_state",
       "_tgt": "app_normalize_redirect_uri",
@@ -6681,7 +6833,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L717",
+      "source_location": "L731",
       "weight": 0.8,
       "_src": "app_start_strava_auth",
       "_tgt": "app_normalize_redirect_uri",
@@ -6693,7 +6845,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L759",
+      "source_location": "L773",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_normalize_redirect_uri",
@@ -6705,7 +6857,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L188",
+      "source_location": "L194",
       "weight": 0.8,
       "_src": "app_is_allowed_redirect_uri",
       "_tgt": "app_allowed_strava_redirect_uris",
@@ -6717,7 +6869,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L730",
+      "source_location": "L744",
       "weight": 0.8,
       "_src": "app_start_strava_auth",
       "_tgt": "app_is_allowed_redirect_uri",
@@ -6729,7 +6881,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L771",
+      "source_location": "L785",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_is_allowed_redirect_uri",
@@ -6741,7 +6893,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L719",
+      "source_location": "L733",
       "weight": 0.8,
       "_src": "app_start_strava_auth",
       "_tgt": "app_normalize_requested_strava_scope",
@@ -6753,7 +6905,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L760",
+      "source_location": "L774",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_normalize_requested_strava_scope",
@@ -6765,7 +6917,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L237",
+      "source_location": "L243",
       "weight": 0.8,
       "_src": "app_create_strava_oauth_state",
       "_tgt": "app_state_b64encode",
@@ -6777,7 +6929,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L247",
+      "source_location": "L253",
       "weight": 0.8,
       "_src": "app_validate_strava_oauth_state",
       "_tgt": "app_state_b64decode",
@@ -6789,7 +6941,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L224",
+      "source_location": "L230",
       "weight": 0.8,
       "_src": "app_get_strava_state_secret",
       "_tgt": "app_get_strava_client_secret",
@@ -6801,7 +6953,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L235",
+      "source_location": "L241",
       "weight": 0.8,
       "_src": "app_create_strava_oauth_state",
       "_tgt": "app_get_strava_state_secret",
@@ -6813,7 +6965,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L252",
+      "source_location": "L258",
       "weight": 0.8,
       "_src": "app_validate_strava_oauth_state",
       "_tgt": "app_get_strava_state_secret",
@@ -6825,7 +6977,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L735",
+      "source_location": "L749",
       "weight": 0.8,
       "_src": "app_start_strava_auth",
       "_tgt": "app_create_strava_oauth_state",
@@ -6837,7 +6989,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L775",
+      "source_location": "L789",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_validate_strava_oauth_state",
@@ -6849,7 +7001,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L739",
+      "source_location": "L753",
       "weight": 0.8,
       "_src": "app_start_strava_auth",
       "_tgt": "app_build_strava_auth_url",
@@ -6861,7 +7013,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L734",
+      "source_location": "L748",
       "weight": 0.8,
       "_src": "app_start_strava_auth",
       "_tgt": "app_get_strava_client_id",
@@ -6873,7 +7025,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L783",
+      "source_location": "L797",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_get_strava_client_id",
@@ -6885,7 +7037,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L838",
+      "source_location": "L852",
       "weight": 0.8,
       "_src": "app_refresh_strava_auth_token",
       "_tgt": "app_get_strava_client_id",
@@ -6897,7 +7049,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L784",
+      "source_location": "L798",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_get_strava_client_secret",
@@ -6909,7 +7061,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L839",
+      "source_location": "L853",
       "weight": 0.8,
       "_src": "app_refresh_strava_auth_token",
       "_tgt": "app_get_strava_client_secret",
@@ -6921,7 +7073,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L785",
+      "source_location": "L799",
       "weight": 0.8,
       "_src": "app_exchange_strava_auth_code",
       "_tgt": "app_exchange_strava_code",
@@ -6933,7 +7085,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L840",
+      "source_location": "L854",
       "weight": 0.8,
       "_src": "app_refresh_strava_auth_token",
       "_tgt": "app_refresh_strava_token",
@@ -6945,7 +7097,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L541",
+      "source_location": "L555",
       "weight": 0.8,
       "_src": "app_list_athletes",
       "_tgt": "app_internal_request_authorized",
@@ -6957,7 +7109,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L882",
+      "source_location": "L896",
       "weight": 0.8,
       "_src": "app_run_daily_pipeline_endpoint",
       "_tgt": "app_internal_request_authorized",
@@ -6969,7 +7121,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L921",
+      "source_location": "L931",
       "weight": 0.8,
       "_src": "app_run_research_wiki_endpoint",
       "_tgt": "app_internal_request_authorized",
@@ -6981,7 +7133,31 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L945",
+      "source_location": "L952",
+      "weight": 0.8,
+      "_src": "app_get_pipeline_run_endpoint",
+      "_tgt": "app_internal_request_authorized",
+      "source": "app_internal_request_authorized",
+      "target": "app_get_pipeline_run_endpoint",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "app.py",
+      "source_location": "L964",
+      "weight": 0.8,
+      "_src": "app_list_pipeline_runs_endpoint",
+      "_tgt": "app_internal_request_authorized",
+      "source": "app_internal_request_authorized",
+      "target": "app_list_pipeline_runs_endpoint",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "app.py",
+      "source_location": "L982",
       "weight": 0.8,
       "_src": "app_run_pipeline_stage_endpoint",
       "_tgt": "app_internal_request_authorized",
@@ -6993,7 +7169,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L374",
+      "source_location": "L380",
       "weight": 0.8,
       "_src": "app_dispatch_research_wiki_async",
       "_tgt": "app_internal_pipeline_base_url",
@@ -7005,7 +7181,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L906",
+      "source_location": "L916",
       "weight": 0.8,
       "_src": "app_run_daily_pipeline_endpoint",
       "_tgt": "app_dispatch_research_wiki_async",
@@ -7017,7 +7193,7 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L606",
+      "source_location": "L620",
       "weight": 0.8,
       "_src": "app_chat_agent",
       "_tgt": "app_parse_chat_request",
@@ -7029,12 +7205,24 @@
       "relation": "calls",
       "confidence": "INFERRED",
       "source_file": "app.py",
-      "source_location": "L699",
+      "source_location": "L713",
       "weight": 0.8,
       "_src": "app_chat_agent",
       "_tgt": "app_normalize_chat_result",
       "source": "app_normalize_chat_result",
       "target": "app_chat_agent",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "source_file": "app.py",
+      "source_location": "L1108",
+      "weight": 0.8,
+      "_src": "app_chat_wiki_agent",
+      "_tgt": "app_normalize_chat_result",
+      "source": "app_normalize_chat_result",
+      "target": "app_chat_wiki_agent",
       "confidence_score": 0.5
     },
     {

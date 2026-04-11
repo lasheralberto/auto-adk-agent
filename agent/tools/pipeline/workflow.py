@@ -4,13 +4,16 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from .connectors.base import DataConnector
-from .connectors.strava import StravaConnector, _MAX_SYNC_PAGES, _PER_PAGE
+from .connectors.strava import StravaConnector
 from .research_wiki_agent import run_deep_research_wiki_agent
 from .storage_backend import ArtifactStore, AthleteStateStore, utc_now_iso
+
+_RESEARCH_INPUT_PREFIX = "pipeline/research-wiki-input"
+_LATEST_ACTIVITIES_LIMIT = 10
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -35,10 +38,6 @@ def _normalize_date(target_date: str | None) -> str:
     if isinstance(target_date, str) and target_date.strip():
         return target_date.strip()
     return datetime.now(timezone.utc).date().isoformat()
-
-
-def _compact_timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _activity_day(activity: dict[str, Any]) -> str:
@@ -73,45 +72,90 @@ def _resolve_targets(state_store: AthleteStateStore, athlete_ids_csv: str = "") 
 
     return state_store.list_athletes_with_tokens()
 
+def _existing_activity_ids_in_bucket(artifact_store: ArtifactStore) -> set[str]:
+    """Devuelve el conjunto de IDs de actividad ya presentes en el bucket.
 
-def _extract_activity_id_from_path(path: str) -> int:
-    filename = path.split("/")[-1]
-    match = re.match(r"(\d+)_", filename)
-    if not match:
-        return 0
-    return _safe_int(match.group(1), 0)
-
-
-def _latest_activity_paths_for_day(
-    artifact_store: ArtifactStore,
-    athlete_id: int,
-    day: str,
-) -> list[str]:
-    prefix = f"raw/athletes/{athlete_id}/activities/{day}/"
-    paths = artifact_store.list_paths(prefix, suffix=".json")
-
-    by_activity_id: dict[int, str] = {}
-    for path in paths:
-        activity_id = _extract_activity_id_from_path(path)
-        if activity_id <= 0:
+    Cada blob bajo ``pipeline/research-wiki-input/`` se nombra con el ID
+    de la actividad de Strava, por lo que el basename del path equivale al
+    identificador que queremos comprobar.
+    """
+    existing: set[str] = set()
+    prefix = f"{_RESEARCH_INPUT_PREFIX}/"
+    for path in artifact_store.list_paths(prefix=prefix):
+        normalized = str(path).strip()
+        if not normalized:
             continue
-        current = by_activity_id.get(activity_id)
-        if current is None or path > current:
-            by_activity_id[activity_id] = path
+        # Strip the prefix and any extension to recover just the activity id.
+        tail = normalized.split("/")[-1]
+        if not tail:
+            continue
+        activity_id, _, _ = tail.partition(".")
+        if activity_id:
+            existing.add(activity_id)
+    return existing
 
-    return sorted(by_activity_id.values())
+
+def _build_activity_firestore_payload(
+    activity: dict[str, Any],
+    athlete_id: int,
+) -> dict[str, Any]:
+    """Extrae los campos básicos de la actividad para mostrar en frontend."""
+    payload: dict[str, Any] = {
+        "activity_id": _safe_int(activity.get("id"), 0),
+        "athlete_id": athlete_id,
+    }
+    flat_fields = [
+        "name",
+        "sport_type",
+        "type",
+        "distance",
+        "moving_time",
+        "elapsed_time",
+        "total_elevation_gain",
+        "average_speed",
+        "max_speed",
+        "average_heartrate",
+        "max_heartrate",
+        "average_watts",
+        "kilojoules",
+        "start_date",
+        "start_date_local",
+        "timezone",
+        "workout_type",
+        "device_name",
+        "has_heartrate",
+        "elev_high",
+        "elev_low",
+        "pr_count",
+        "achievement_count",
+        "kudos_count",
+        "athlete_count",
+        "gear_id",
+        "trainer",
+        "commute",
+        "manual",
+    ]
+    for field in flat_fields:
+        value = activity.get(field)
+        if value is not None:
+            payload[field] = value
+    return payload
+
 
 def run_ingestion(
     connector: DataConnector,
     athlete_ids_csv: str = "",
-    lookback_days: int = 7,
-    max_pages: int = _MAX_SYNC_PAGES,
-    per_page: int = _PER_PAGE,
+    latest_limit: int = _LATEST_ACTIVITIES_LIMIT,
 ) -> dict[str, Any]:
-    """Pipeline de ingesta agnóstico del servicio.
+    """Pipeline de ingesta por actividad (sin agrupación por día).
 
-    Delega la obtención de datos al ``connector`` y gestiona almacenamiento
-    y estado de sincronización en las capas comunes (ArtifactStore, AthleteStateStore).
+    Para cada atleta:
+    1. Pide las ``latest_limit`` actividades más recientes a Strava.
+    2. Lista los blobs existentes en ``pipeline/research-wiki-input/`` — cada
+       blob se nombra con el ID de la actividad — para deduplicar.
+    3. Por cada actividad nueva: escribe un blob marcador con ese ID y crea
+       el documento en Firestore ``activities_runs/{activity_id}`` con los
+       datos básicos y ``status='queued'``.
     """
     state_store = AthleteStateStore()
     artifact_store = ArtifactStore()
@@ -122,7 +166,6 @@ def run_ingestion(
         targets = connector.list_syncable_athletes()
 
     now_epoch = int(datetime.now(timezone.utc).timestamp())
-    lookback_seconds = max(1, int(lookback_days)) * 24 * 60 * 60
 
     run_report: dict[str, Any] = {
         "stage": "ingestion",
@@ -140,15 +183,12 @@ def run_ingestion(
             run_report["errors"].append({"athlete_id": athlete_id, "error": "missing_athlete_id"})
             continue
 
-        previous_sync = state_store.get_last_sync_epoch(athlete_id)
-        after_epoch = max(previous_sync or 0, now_epoch - lookback_seconds)
-        sync_stamp = _compact_timestamp()
-
         athlete_report: dict[str, Any] = {
             "athlete_id": athlete_id,
-            "after_epoch": after_epoch,
-            "stored_activities": 0,
-            "manifest_path": None,
+            "fetched_activities": 0,
+            "new_activities": 0,
+            "skipped_existing": 0,
+            "queued_activity_ids": [],
         }
 
         # Refresh profile in state (best-effort)
@@ -166,41 +206,60 @@ def run_ingestion(
             )
 
         try:
-            activities = connector.fetch_activities(
-                athlete_id,
-                after_epoch=after_epoch,
-                max_pages=max_pages,
-                per_page=per_page,
-            )
+            # Prefer the simple "last N" fetch when the connector supports it.
+            fetch_latest = getattr(connector, "fetch_latest_activities", None)
+            if callable(fetch_latest):
+                activities = fetch_latest(athlete_id, limit=latest_limit)
+            else:
+                activities = connector.fetch_activities(
+                    athlete_id,
+                    after_epoch=0,
+                    max_pages=1,
+                    per_page=latest_limit,
+                )
+
+            athlete_report["fetched_activities"] = len(activities)
+            existing_ids = _existing_activity_ids_in_bucket(artifact_store)
 
             for activity in activities:
                 activity_id = _safe_int(activity.get("id"), 0)
                 if activity_id <= 0:
                     continue
-                activity_day = _activity_day(activity)
-                relative_path = (
-                    f"raw/athletes/{athlete_id}/activities/{activity_day}/{activity_id}_{sync_stamp}.json"
-                )
-                artifact_store.write_json(relative_path, activity)
-                athlete_report["stored_activities"] += 1
 
-            manifest_path = f"raw/athletes/{athlete_id}/manifests/{_normalize_date(None)}_{sync_stamp}.json"
-            artifact_store.write_json(
-                manifest_path,
-                {
-                    "athlete_id": athlete_id,
-                    "after_epoch": after_epoch,
-                    "stored_activities": athlete_report["stored_activities"],
-                    "created_at": utc_now_iso(),
-                },
-            )
-            athlete_report["manifest_path"] = manifest_path
+                activity_id_str = str(activity_id)
+                if activity_id_str in existing_ids:
+                    athlete_report["skipped_existing"] += 1
+                    continue
+
+                # 1. Write the marker blob (content is the activity id only).
+                blob_path = f"{_RESEARCH_INPUT_PREFIX}/{activity_id_str}"
+                artifact_store.write_text(blob_path, activity_id_str)
+                existing_ids.add(activity_id_str)
+
+                # 2. Upsert the Firestore tracking document as queued.
+                firestore_payload = _build_activity_firestore_payload(activity, athlete_id)
+                firestore_payload.update(
+                    {
+                        "status": "queued",
+                        "queued_at": utc_now_iso(),
+                        "blob_path": blob_path,
+                        "source": connector.connector_name,
+                    }
+                )
+                state_store.upsert_activity_run(activity_id, firestore_payload)
+
+                athlete_report["new_activities"] += 1
+                athlete_report["queued_activity_ids"].append(activity_id)
 
             state_store.update_sync_state(
                 athlete_id,
                 last_sync_epoch=now_epoch,
                 status="success",
-                details={"stored_activities": athlete_report["stored_activities"]},
+                details={
+                    "fetched_activities": athlete_report["fetched_activities"],
+                    "new_activities": athlete_report["new_activities"],
+                    "skipped_existing": athlete_report["skipped_existing"],
+                },
             )
             run_report["athletes"].append(athlete_report)
         except Exception as exc:  # noqa: BLE001
@@ -219,9 +278,7 @@ def run_ingestion(
 
 def run_strava_ingestion(
     athlete_ids_csv: str = "",
-    lookback_days: int = 7,
-    max_pages: int = _MAX_SYNC_PAGES,
-    per_page: int = _PER_PAGE,
+    latest_limit: int = _LATEST_ACTIVITIES_LIMIT,
 ) -> dict[str, Any]:
     """Wrapper de compatibilidad que usa el conector de Strava."""
     state_store = AthleteStateStore()
@@ -229,19 +286,35 @@ def run_strava_ingestion(
     return run_ingestion(
         connector,
         athlete_ids_csv=athlete_ids_csv,
-        lookback_days=lookback_days,
-        max_pages=max_pages,
-        per_page=per_page,
+        latest_limit=latest_limit,
     )
 
 
-_RESEARCH_INPUT_PREFIX = "pipeline/research-wiki-input"
+def _build_research_record_from_activity_payload(
+    activity_payload: dict[str, Any],
+    athlete_id: int,
+) -> dict[str, Any]:
+    """Construye el registro que consume el agente de deep research a partir
+    del documento almacenado en ``activities_runs``.
+    """
+    name = str(activity_payload.get("name") or "")
+    sport = str(activity_payload.get("sport_type") or activity_payload.get("type") or "")
+    summary = f"{name} ({sport})".strip()
+    text_for_embedding = f"{name} {sport} {summary}".strip()
 
+    activity_id = _safe_int(activity_payload.get("activity_id") or activity_payload.get("id"), 0)
 
-def _build_activity_metadata(activity: dict[str, Any], summary: str, athlete_id: int) -> dict[str, Any]:
-    metadata: dict[str, Any] = {"athlete_id": athlete_id, "summary": summary}
+    record: dict[str, Any] = {
+        "_id": f"{athlete_id}_{activity_id}",
+        "id": activity_id,
+        "athlete_id": athlete_id,
+        "text": text_for_embedding,
+        "_text": text_for_embedding,
+        "summary": summary,
+    }
+
     flat_fields = [
-        "id", "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain",
+        "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain",
         "type", "sport_type", "workout_type", "device_name", "start_date", "start_date_local",
         "timezone", "average_speed", "max_speed", "average_temp", "average_watts",
         "kilojoules", "has_heartrate", "average_heartrate", "max_heartrate",
@@ -249,90 +322,13 @@ def _build_activity_metadata(activity: dict[str, Any], summary: str, athlete_id:
         "athlete_count", "gear_id", "trainer", "commute", "manual",
     ]
     for field in flat_fields:
-        value = activity.get(field)
+        value = activity_payload.get(field)
         if value is not None:
-            metadata[field] = value
-    return metadata
+            record[field] = value
+    return record
 
 
 # ─── Stage 4: Deep Research Wiki ────────────────────────────────────────────
-
-def _window_days(target_day: str, window_days: int) -> list[str]:
-    try:
-        anchor = datetime.strptime(target_day, "%Y-%m-%d").date()
-    except ValueError:
-        anchor = datetime.now(timezone.utc).date()
-
-    days: list[str] = []
-    span = max(2, int(window_days))
-    for offset in range(span):
-        days.append((anchor - timedelta(days=offset)).isoformat())
-    return sorted(days)
-
-
-def _latest_research_input_path_for_day(
-    artifact_store: ArtifactStore,
-    athlete_id: int,
-    day: str,
-) -> str | None:
-    prefix = f"{_RESEARCH_INPUT_PREFIX}/{day}/{athlete_id}/"
-    paths = artifact_store.list_paths(prefix=prefix, suffix=".json")
-    if not paths:
-        return None
-    return sorted(paths)[-1]
-
-
-def _build_research_record_from_activity(activity: dict[str, Any], athlete_id: int) -> dict[str, Any] | None:
-    activity_id = _safe_int(activity.get("id"), 0)
-    if activity_id <= 0:
-        return None
-
-    name = str(activity.get("name") or "")
-    sport = str(activity.get("sport_type") or activity.get("type") or "")
-    summary = f"{name} ({sport})".strip()
-    metadata = _build_activity_metadata(activity, summary, athlete_id)
-    text_for_embedding = f"{name} {sport} {summary}".strip()
-
-    return {
-        "_id": f"{athlete_id}_{activity_id}",
-        "text": text_for_embedding,
-        "_text": text_for_embedding,
-        **metadata,
-    }
-
-
-def _load_research_records_for_day(
-    artifact_store: ArtifactStore,
-    athlete_id: int,
-    day: str,
-    *,
-    allow_raw_fallback: bool,
-) -> tuple[list[dict[str, Any]], str]:
-    input_path = _latest_research_input_path_for_day(artifact_store, athlete_id, day)
-    if input_path:
-        payload = artifact_store.read_json(input_path)
-        if isinstance(payload, dict):
-            records = payload.get("records")
-            if isinstance(records, list):
-                valid_records = [item for item in records if isinstance(item, dict)]
-                if valid_records:
-                    return valid_records, "upsert_input"
-
-    if not allow_raw_fallback:
-        return [], "none"
-
-    raw_records: list[dict[str, Any]] = []
-    for path in _latest_activity_paths_for_day(artifact_store, athlete_id, day):
-        activity = artifact_store.read_json(path)
-        if not isinstance(activity, dict):
-            continue
-        if record := _build_research_record_from_activity(activity, athlete_id):
-            raw_records.append(record)
-
-    if raw_records:
-        return raw_records, "raw_fallback"
-
-    return [], "none"
 
 
 def _average(values: list[float]) -> float | None:
@@ -342,39 +338,19 @@ def _average(values: list[float]) -> float | None:
     return sum(cleaned) / float(len(cleaned))
 
 
-def _aggregate_research_metrics(
-    target_records: list[dict[str, Any]],
-    historical_records: list[dict[str, Any]],
-) -> dict[str, Any]:
-    def _distance_km(record: dict[str, Any]) -> float:
-        return _safe_float(record.get("distance"), 0.0) / 1000.0
-
-    def _moving_hours(record: dict[str, Any]) -> float:
-        return _safe_float(record.get("moving_time"), 0.0) / 3600.0
-
-    window_records = [*historical_records, *target_records]
-    sport_distribution: dict[str, int] = {}
-    for record in window_records:
-        sport = str(record.get("sport_type") or record.get("type") or "unknown").strip().lower()
-        if not sport:
-            sport = "unknown"
-        sport_distribution[sport] = sport_distribution.get(sport, 0) + 1
-
-    target_hr = [_safe_float(record.get("average_heartrate"), 0.0) for record in target_records]
-    target_watts = [_safe_float(record.get("average_watts"), 0.0) for record in target_records]
-    window_hr = [_safe_float(record.get("average_heartrate"), 0.0) for record in window_records]
+def _aggregate_activity_metrics(record: dict[str, Any]) -> dict[str, Any]:
+    """Resumen básico de una sola actividad para el prompt del agente."""
+    distance_km = _safe_float(record.get("distance"), 0.0) / 1000.0
+    moving_hours = _safe_float(record.get("moving_time"), 0.0) / 3600.0
+    sport = str(record.get("sport_type") or record.get("type") or "unknown").strip().lower() or "unknown"
 
     return {
-        "target_activities": len(target_records),
-        "target_distance_km": round(sum(_distance_km(record) for record in target_records), 2),
-        "target_moving_hours": round(sum(_moving_hours(record) for record in target_records), 2),
-        "window_activities": len(window_records),
-        "window_distance_km": round(sum(_distance_km(record) for record in window_records), 2),
-        "window_moving_hours": round(sum(_moving_hours(record) for record in window_records), 2),
-        "target_avg_heartrate": round(_average(target_hr), 1) if _average(target_hr) is not None else None,
-        "target_avg_watts": round(_average(target_watts), 1) if _average(target_watts) is not None else None,
-        "window_avg_heartrate": round(_average(window_hr), 1) if _average(window_hr) is not None else None,
-        "sport_distribution": sport_distribution,
+        "target_activities": 1,
+        "target_distance_km": round(distance_km, 2),
+        "target_moving_hours": round(moving_hours, 2),
+        "target_avg_heartrate": _safe_float(record.get("average_heartrate"), 0.0) or None,
+        "target_avg_watts": _safe_float(record.get("average_watts"), 0.0) or None,
+        "sport_distribution": {sport: 1},
     }
 
 
@@ -396,104 +372,181 @@ def _write_research_outputs(
     }
 
 
+def _merge_research_step_into_daily_run(
+    *,
+    state_store: AthleteStateStore,
+    daily_run_id: str,
+    step_payload: dict[str, Any],
+    run_status: str | None = None,
+) -> None:
+    normalized_daily_run_id = (daily_run_id or "").strip()
+    if not normalized_daily_run_id:
+        return
+
+    daily_run = state_store.get_pipeline_run(normalized_daily_run_id) or {}
+    if not isinstance(daily_run, dict):
+        daily_run = {}
+
+    steps = daily_run.get("steps")
+    if not isinstance(steps, dict):
+        steps = {}
+
+    existing_step = steps.get("research_wiki")
+    merged_step: dict[str, Any] = {}
+    if isinstance(existing_step, dict):
+        merged_step.update(existing_step)
+    merged_step.update(step_payload)
+    merged_step.setdefault("stage", "research_wiki")
+    steps["research_wiki"] = merged_step
+
+    daily_run["run_id"] = str(daily_run.get("run_id") or normalized_daily_run_id)
+    daily_run["steps"] = steps
+    if run_status:
+        daily_run["status"] = run_status
+    daily_run["updated_at"] = utc_now_iso()
+
+    state_store.record_pipeline_run(normalized_daily_run_id, daily_run)
+
+
 def research_wiki_pipeline(
     athlete_ids_csv: str = "",
-    target_date: str = "",
-    window_days: int = 14,
     daily_run_id: str = "",
+    max_activities: int = 100,
 ) -> dict[str, Any]:
+    """Procesa las actividades encoladas en Firestore (``status='queued'``).
+
+    Para cada actividad:
+    1. Lee los datos básicos de ``activities_runs/{activity_id}``.
+    2. Ejecuta el agente de deep research contra ese registro.
+    3. Escribe/actualiza ``wiki/{athlete_id}/research.md``.
+    4. Marca la actividad como ``success`` en Firestore.
+    """
     artifact_store = ArtifactStore()
     state_store = AthleteStateStore()
 
-    day = _normalize_date(target_date)
-    normalized_window_days = max(2, int(window_days))
-    targets = _resolve_targets(state_store, athlete_ids_csv)
     run_id = uuid.uuid4().hex
+    parent_daily_run_id = (daily_run_id or "").strip() or None
+    started_at = utc_now_iso()
+
+    # Resolve target athletes (CSV override or all athletes with tokens).
+    targets = _resolve_targets(state_store, athlete_ids_csv) if athlete_ids_csv.strip() else []
+    target_athlete_ids: set[int] = {
+        _safe_int(target.get("athlete_id"), 0)
+        for target in targets
+        if _safe_int(target.get("athlete_id"), 0) > 0
+    }
+    athlete_profiles: dict[int, dict[str, Any]] = {}
+    for target in targets:
+        athlete_id = _safe_int(target.get("athlete_id"), 0)
+        profile = target.get("profile") if isinstance(target.get("profile"), dict) else {}
+        athlete_profiles[athlete_id] = profile or {}
 
     report: dict[str, Any] = {
         "stage": "research_wiki",
         "run_id": run_id,
-        "daily_run_id": (daily_run_id or "").strip() or None,
-        "target_date": day,
-        "window_days": normalized_window_days,
-        "athletes": [],
+        "daily_run_id": parent_daily_run_id,
+        "started_at": started_at,
+        "activities": [],
         "errors": [],
-        "started_at": utc_now_iso(),
     }
 
-    state_store.record_pipeline_run(
-        run_id,
-        {
-            "run_id": run_id,
-            "stage": "research_wiki",
-            "status": "running",
-            "target_date": day,
-            "window_days": normalized_window_days,
-            "daily_run_id": report["daily_run_id"],
-            "started_at": report["started_at"],
-        },
+    running_step_payload = {
+        "stage": "research_wiki",
+        "run_id": run_id,
+        "status": "running",
+        "started_at": started_at,
+    }
+
+    if parent_daily_run_id:
+        _merge_research_step_into_daily_run(
+            state_store=state_store,
+            daily_run_id=parent_daily_run_id,
+            step_payload=running_step_payload,
+            run_status="running",
+        )
+    else:
+        state_store.record_pipeline_run(
+            run_id,
+            {
+                "run_id": run_id,
+                "stage": "research_wiki",
+                "status": "running",
+                "daily_run_id": parent_daily_run_id,
+                "started_at": started_at,
+            },
+        )
+
+    # Query queued activities in Firestore.
+    queued_activities = state_store.list_activity_runs_by_status(
+        "queued",
+        limit=max(1, int(max_activities)),
     )
 
-    for target in targets:
-        athlete_id = _safe_int(target.get("athlete_id"), 0)
-        if athlete_id <= 0:
+    # If a CSV of athletes was provided, restrict processing to those athletes.
+    if target_athlete_ids:
+        queued_activities = [
+            activity for activity in queued_activities
+            if _safe_int(activity.get("athlete_id"), 0) in target_athlete_ids
+        ]
+
+    for activity_payload in queued_activities:
+        activity_id = _safe_int(activity_payload.get("activity_id") or activity_payload.get("id"), 0)
+        athlete_id = _safe_int(activity_payload.get("athlete_id"), 0)
+        if activity_id <= 0 or athlete_id <= 0:
             continue
 
-        target_records, target_source = _load_research_records_for_day(
-            artifact_store,
-            athlete_id,
-            day,
-            allow_raw_fallback=False,
+        # Mark as running to avoid double-processing.
+        state_store.update_activity_run_status(
+            activity_id,
+            "running",
+            details={"run_id": run_id},
         )
-        if not target_records:
-            report["athletes"].append(
-                {
-                    "athlete_id": athlete_id,
-                    "status": "skipped",
-                    "reason": "missing_upsert_input_for_target_date",
-                }
-            )
-            continue
 
-        historical_records: list[dict[str, Any]] = []
-        raw_fallback_days = 0
-        for candidate_day in _window_days(day, normalized_window_days):
-            if candidate_day == day:
-                continue
-            records, source = _load_research_records_for_day(
-                artifact_store,
-                athlete_id,
-                candidate_day,
-                allow_raw_fallback=True,
-            )
-            if source == "raw_fallback" and records:
-                raw_fallback_days += 1
-            if records:
-                historical_records.extend(records)
+        record = _build_research_record_from_activity_payload(activity_payload, athlete_id)
+        metrics = _aggregate_activity_metrics(record)
 
-        metrics = _aggregate_research_metrics(target_records, historical_records)
-        athlete_profile = target.get("profile") if isinstance(target.get("profile"), dict) else {}
+        athlete_profile = athlete_profiles.get(athlete_id)
+        if not isinstance(athlete_profile, dict):
+            athlete_doc = state_store.get_athlete(athlete_id) or {}
+            profile = athlete_doc.get("profile") if isinstance(athlete_doc.get("profile"), dict) else {}
+            athlete_profile = profile or {}
 
         existing_report = _read_existing_research(artifact_store, athlete_id)
+        target_day = _activity_day(record)
 
         try:
             research_result = run_deep_research_wiki_agent(
                 athlete_id=athlete_id,
-                target_date=day,
-                window_days=normalized_window_days,
-                target_records=target_records,
-                historical_records=historical_records,
+                target_date=target_day,
+                window_days=2,
+                target_records=[record],
+                historical_records=[],
                 metrics=metrics,
                 athlete_profile=athlete_profile,
                 existing_report=existing_report,
             )
         except Exception as exc:  # noqa: BLE001
-            report["errors"].append({"athlete_id": athlete_id, "error": f"research_generation_failed: {exc}"})
+            error_message = f"research_generation_failed: {exc}"
+            report["errors"].append(
+                {"activity_id": activity_id, "athlete_id": athlete_id, "error": error_message}
+            )
+            state_store.update_activity_run_status(
+                activity_id,
+                "failed",
+                details={"run_id": run_id, "error": error_message},
+            )
             continue
 
         final_report = str(research_result.get("final_report") or "").strip()
         if not final_report:
-            report["errors"].append({"athlete_id": athlete_id, "error": "empty_research_report"})
+            report["errors"].append(
+                {"activity_id": activity_id, "athlete_id": athlete_id, "error": "empty_research_report"}
+            )
+            state_store.update_activity_run_status(
+                activity_id,
+                "failed",
+                details={"run_id": run_id, "error": "empty_research_report"},
+            )
             continue
 
         storage_result = _write_research_outputs(
@@ -502,16 +555,23 @@ def research_wiki_pipeline(
             final_report,
         )
 
-        report["athletes"].append(
+        state_store.update_activity_run_status(
+            activity_id,
+            "success",
+            details={
+                "run_id": run_id,
+                "report_path": storage_result["report_path"],
+                "processed_at": utc_now_iso(),
+            },
+        )
+
+        report["activities"].append(
             {
+                "activity_id": activity_id,
                 "athlete_id": athlete_id,
+                "target_date": target_day,
                 "status": "compiled",
-                "target_records": len(target_records),
-                "historical_records": len(historical_records),
-                "target_source": target_source,
-                "raw_fallback_days": raw_fallback_days,
                 "incremental_update": existing_report is not None,
-                "evaluations": len(research_result.get("evaluations") or []),
                 "report_path": storage_result["report_path"],
                 "storage_mode": storage_result["storage_mode"],
             }
@@ -519,16 +579,34 @@ def research_wiki_pipeline(
 
     report["ok"] = not report["errors"]
     report["finished_at"] = utc_now_iso()
-    all_skipped = bool(report["athletes"]) and all(
-        a.get("status") == "skipped" for a in report["athletes"]
-    )
-    if all_skipped:
+    report["queued_processed"] = len(report["activities"])
+    if not report["activities"] and not report["errors"]:
         report["status"] = "skipped"
     elif report["ok"]:
         report["status"] = "success"
     else:
         report["status"] = "partial_failure"
-    state_store.record_pipeline_run(run_id, report)
+
+    if parent_daily_run_id:
+        _merge_research_step_into_daily_run(
+            state_store=state_store,
+            daily_run_id=parent_daily_run_id,
+            step_payload={
+                "stage": "research_wiki",
+                "run_id": run_id,
+                "status": report["status"],
+                "activities": report["activities"],
+                "errors": report["errors"],
+                "ok": report["ok"],
+                "queued_processed": report["queued_processed"],
+                "started_at": started_at,
+                "finished_at": report["finished_at"],
+            },
+            run_status=report["status"],
+        )
+    else:
+        state_store.record_pipeline_run(run_id, report)
+
     return report
 
 
@@ -538,8 +616,7 @@ def research_wiki_pipeline(
 def run_daily_pipeline(
     athlete_ids_csv: str = "",
     target_date: str = "",
-    lookback_days: int = 7,
-    window_days: int = 14,
+    latest_limit: int = _LATEST_ACTIVITIES_LIMIT,
 ) -> dict[str, Any]:
     state_store = AthleteStateStore()
     run_id = uuid.uuid4().hex
@@ -554,12 +631,15 @@ def run_daily_pipeline(
     state_store.record_pipeline_run(run_id, started_payload)
 
     connector = StravaConnector(state_store)
-    ingestion_report = run_ingestion(connector, athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days)
+    ingestion_report = run_ingestion(
+        connector,
+        athlete_ids_csv=athlete_ids_csv,
+        latest_limit=latest_limit,
+    )
 
     pipeline_report = {
         "run_id": run_id,
         "target_date": day,
-        "window_days": max(2, int(window_days)),
         "status": "success",
         "finished_at": utc_now_iso(),
         "steps": {
@@ -573,27 +653,204 @@ def run_daily_pipeline(
 
 # ─── Pipeline wrappers (JSON string output for agent tools) ─────────────────
 
-def run_ingestion_pipeline(athlete_ids_csv: str = "", lookback_days: int = 7) -> str:
+def run_ingestion_pipeline(
+    athlete_ids_csv: str = "",
+    latest_limit: int = _LATEST_ACTIVITIES_LIMIT,
+) -> str:
     state_store = AthleteStateStore()
     connector = StravaConnector(state_store)
     return json.dumps(
-        run_ingestion(connector, athlete_ids_csv=athlete_ids_csv, lookback_days=lookback_days),
+        run_ingestion(
+            connector,
+            athlete_ids_csv=athlete_ids_csv,
+            latest_limit=latest_limit,
+        ),
         ensure_ascii=False,
     )
 
 
 def run_research_wiki_pipeline(
     athlete_ids_csv: str = "",
-    target_date: str = "",
-    window_days: int = 14,
     daily_run_id: str = "",
+    max_activities: int = 100,
 ) -> str:
     return json.dumps(
         research_wiki_pipeline(
             athlete_ids_csv=athlete_ids_csv,
-            target_date=target_date,
-            window_days=window_days,
             daily_run_id=daily_run_id,
+            max_activities=max_activities,
+        ),
+        ensure_ascii=False,
+    )
+
+
+_QUERY_TOKEN_RE = re.compile(r"[a-zA-Z0-9áéíóúñü]+", flags=re.IGNORECASE)
+
+
+def _tokenize_for_query(text: str) -> set[str]:
+    if not isinstance(text, str):
+        return set()
+    return {
+        token.lower()
+        for token in _QUERY_TOKEN_RE.findall(text)
+        if len(token) >= 3
+    }
+
+
+def _split_markdown_for_query(markdown_text: str) -> list[str]:
+    lines = markdown_text.splitlines()
+    sections: list[str] = []
+    current: list[str] = []
+
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("## ") or stripped.startswith("### "):
+            if current:
+                section_text = "\n".join(current).strip()
+                if section_text:
+                    sections.append(section_text)
+                current = []
+        current.append(line)
+
+    if current:
+        section_text = "\n".join(current).strip()
+        if section_text:
+            sections.append(section_text)
+
+    if sections:
+        return sections
+
+    paragraphs = [chunk.strip() for chunk in markdown_text.split("\n\n") if chunk.strip()]
+    if paragraphs:
+        return paragraphs
+
+    fallback = markdown_text.strip()
+    return [fallback] if fallback else []
+
+
+def _score_query_chunk(chunk_text: str, question_terms: set[str]) -> float:
+    if not chunk_text:
+        return 0.0
+
+    if not question_terms:
+        return 0.01
+
+    lowered = chunk_text.lower()
+    matched_terms = sum(1 for term in question_terms if term in lowered)
+    if matched_terms <= 0:
+        return 0.0
+
+    coverage = matched_terms / max(1, len(question_terms))
+    return round(coverage, 6)
+
+
+def _build_wiki_hits(
+    *,
+    athlete_id: int,
+    report_markdown: str,
+    question: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    source_path = f"wiki/{athlete_id}/research.md"
+    question_terms = _tokenize_for_query(question)
+    sections = _split_markdown_for_query(report_markdown)
+
+    scored_sections: list[tuple[float, int, str]] = []
+    for index, section in enumerate(sections):
+        clean_section = section.strip()
+        if not clean_section:
+            continue
+        score = _score_query_chunk(clean_section, question_terms)
+        scored_sections.append((score, index, clean_section))
+
+    if not scored_sections:
+        return []
+
+    ranked_sections = sorted(
+        scored_sections,
+        key=lambda item: (item[0], -item[1]),
+        reverse=True,
+    )
+
+    selected = [item for item in ranked_sections if item[0] > 0][:top_k]
+    if not selected:
+        selected = sorted(scored_sections, key=lambda item: item[1])[:top_k]
+
+    return [
+        {
+            "score": score,
+            "type": "wiki_research",
+            "source_path": source_path,
+            "text": text[:1500],
+        }
+        for score, _index, text in selected
+    ]
+
+
+def run_query_layer(
+    question: str,
+    athlete_id: int,
+    top_k: int = 5,
+    target_date: str = "",
+) -> dict[str, Any]:
+    normalized_top_k = max(1, int(top_k))
+    normalized_target_date = target_date.strip() if isinstance(target_date, str) else ""
+    source_path = f"wiki/{athlete_id}/research.md"
+
+    artifact_store = ArtifactStore()
+    report_markdown = _read_existing_research(artifact_store, athlete_id)
+    if not isinstance(report_markdown, str) or not report_markdown.strip():
+        return {
+            "mode": "wiki_missing",
+            "athlete_id": athlete_id,
+            "hits": [],
+            "context": "",
+            "target_date": _normalize_date(normalized_target_date),
+            "source_path": source_path,
+            "error": "wiki_report_not_found",
+        }
+
+    hits = _build_wiki_hits(
+        athlete_id=athlete_id,
+        report_markdown=report_markdown,
+        question=question,
+        top_k=normalized_top_k,
+    )
+    context_text = "\n\n".join(
+        f"[{hit.get('type')}] {hit.get('text', '')}"
+        for hit in hits
+        if str(hit.get("text", "")).strip()
+    )
+
+    return {
+        "mode": "wiki_research",
+        "athlete_id": athlete_id,
+        "hits": hits,
+        "context": context_text,
+        "target_date": _normalize_date(normalized_target_date),
+        "source_path": source_path,
+    }
+
+
+def run_query_pipeline(question: str, athlete_id: int = 0, top_k: int = 5, target_date: str = "") -> str:
+    resolved_athlete_id = _safe_int(athlete_id, 0)
+    if resolved_athlete_id <= 0:
+        return json.dumps(
+            {
+                "mode": "error",
+                "error": "athlete_id_required",
+                "context": "",
+                "hits": [],
+            },
+            ensure_ascii=False,
+        )
+
+    return json.dumps(
+        run_query_layer(
+            question=question,
+            athlete_id=resolved_athlete_id,
+            top_k=top_k,
+            target_date=target_date,
         ),
         ensure_ascii=False,
     )
@@ -602,15 +859,13 @@ def run_research_wiki_pipeline(
 def run_daily_orchestration_pipeline(
     athlete_ids_csv: str = "",
     target_date: str = "",
-    lookback_days: int = 7,
-    window_days: int = 14,
+    latest_limit: int = _LATEST_ACTIVITIES_LIMIT,
 ) -> str:
     return json.dumps(
         run_daily_pipeline(
             athlete_ids_csv=athlete_ids_csv,
             target_date=target_date,
-            lookback_days=lookback_days,
-            window_days=window_days,
+            latest_limit=latest_limit,
         ),
         ensure_ascii=False,
     )
