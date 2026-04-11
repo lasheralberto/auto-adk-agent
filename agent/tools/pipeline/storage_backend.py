@@ -616,6 +616,67 @@ class AthleteStateStore:
         records.sort(key=lambda r: r.get("created_at") or "", reverse=True)
         return records[:capped_limit]
 
+    def list_activity_runs(
+        self,
+        athlete_id: int | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Lista runs de actividades (cualquier status) ordenadas desc por fecha.
+
+        - En Firestore filtra por ``athlete_id`` si se proporciona y ordena
+          por ``queued_at`` descendente (con fallback a ``created_at``).
+        - En el fallback local, ordena en memoria y aplica el límite.
+        """
+        capped_limit = max(1, int(limit))
+        records: list[dict[str, Any]] = []
+
+        if self._client is not None:
+            try:
+                collection = self._client.collection(self._activity_runs_collection)
+                query: Any = collection
+                if athlete_id is not None and int(athlete_id) > 0:
+                    query = query.where("athlete_id", "==", int(athlete_id))
+                try:
+                    query = query.order_by(
+                        "queued_at",
+                        direction=firebase_firestore.Query.DESCENDING,  # type: ignore[union-attr]
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                query = query.limit(capped_limit)
+                for doc in query.stream():
+                    payload = doc.to_dict() or {}
+                    if not isinstance(payload, dict):
+                        continue
+                    normalized = {key: self._to_plain(value) for key, value in payload.items()}
+                    normalized.setdefault("activity_id", _to_int(doc.id))
+                    records.append(normalized)
+                return records
+            except Exception:  # noqa: BLE001
+                self._disable_firestore()
+
+        activity_runs = self._load_local_state().get("activity_runs", {})
+        for key, payload in activity_runs.items():
+            if not isinstance(payload, dict):
+                continue
+            if athlete_id is not None and int(athlete_id) > 0:
+                if _to_int(payload.get("athlete_id"), 0) != int(athlete_id):
+                    continue
+            normalized = {field: self._to_plain(value) for field, value in payload.items()}
+            normalized.setdefault("activity_id", _to_int(key))
+            records.append(normalized)
+
+        records.sort(
+            key=lambda r: (
+                r.get("queued_at")
+                or r.get("created_at")
+                or r.get("start_date")
+                or ""
+            ),
+            reverse=True,
+        )
+        return records[:capped_limit]
+
     def update_activity_run_status(
         self,
         activity_id: int | str,

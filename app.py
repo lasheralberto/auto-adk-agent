@@ -1068,6 +1068,35 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
     }, 400
 
 
+@app.get("/pipeline/activities-runs")
+def list_activities_runs_endpoint() -> tuple[dict[str, Any], int]:
+    """Lista las runs de indexación de actividades Strava para un atleta.
+
+    Consulta la colección Firestore ``activities_runs`` (fallback a storage
+    local) y devuelve cada actividad con su ``status`` (``queued`` |
+    ``running`` | ``success`` | ``failed``) y los campos básicos para
+    mostrar en frontend.
+    """
+    athlete_id = _to_optional_int(request.args.get("athlete_id"))
+    if athlete_id is None or athlete_id <= 0:
+        return {"error": "Query param 'athlete_id' is required."}, 400
+
+    limit = max(1, min(_to_int(request.args.get("limit"), 20), 100))
+
+    state_store = AthleteStateStore()
+    try:
+        runs = state_store.list_activity_runs(athlete_id=athlete_id, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("list_activity_runs failed for athlete %s", athlete_id)
+        return {"error": "Failed to list activity runs.", "details": str(exc)}, 500
+
+    return {
+        "athlete_id": athlete_id,
+        "count": len(runs),
+        "runs": runs,
+    }, 200
+
+
 @app.get("/pipeline/indexing-status")
 def get_indexing_status() -> tuple[dict[str, Any], int]:
     athlete_id = _to_optional_int(request.args.get("athlete_id"))

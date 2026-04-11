@@ -231,9 +231,11 @@ def run_ingestion(
                     athlete_report["skipped_existing"] += 1
                     continue
 
-                # 1. Write the marker blob (content is the activity id only).
+                # 1. Write the activity blob: filename = activity id, content =
+                #    full Strava activity payload serialized as JSON.
                 blob_path = f"{_RESEARCH_INPUT_PREFIX}/{activity_id_str}"
-                artifact_store.write_text(blob_path, activity_id_str)
+                activity_json = json.dumps(activity, ensure_ascii=False, default=str)
+                artifact_store.write_text(blob_path, activity_json)
                 existing_ids.add(activity_id_str)
 
                 # 2. Upsert the Firestore tracking document as queued.
