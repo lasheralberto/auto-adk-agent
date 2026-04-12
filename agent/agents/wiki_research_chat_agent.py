@@ -1,43 +1,36 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from google.adk.agents import LlmAgent
 
-try:
-    from google.cloud import storage as gcs_storage
-except Exception:  # noqa: BLE001
-    gcs_storage = None
-
-_WIKI_BUCKET_ENV = "GCS_WIKI_BUCKET"
-_WIKI_BUCKET_DEFAULT = "adk-kb-bucket"
+from agent.tools.pipeline.storage_backend import ArtifactStore
 
 
-def _get_wiki_bucket_name() -> str:
-    return (os.environ.get(_WIKI_BUCKET_ENV) or _WIKI_BUCKET_DEFAULT).strip()
+def read_wiki_content(athlete_id: int) -> str | None:
+    """Lee todas las páginas de la wiki del atleta y las concatena.
 
-
-def read_wiki_research_md(athlete_id: int) -> str | None:
-    """Read wiki/athlete_id/research.md from the GCS wiki bucket.
-
-    Returns the file content as a string, or None if the file does not exist
-    or GCS is unavailable.
+    Devuelve el contenido combinado como string, o None si no existe ninguna
+    página en la wiki del atleta.
     """
-    bucket_name = _get_wiki_bucket_name()
-    blob_path = f"wiki/{athlete_id}/research.md"
+    artifact_store = ArtifactStore()
+    prefix = f"wiki/{athlete_id}/"
+    paths = artifact_store.list_paths(prefix=prefix, suffix=".md")
+    if not paths:
+        return None
 
-    if gcs_storage is not None:
-        try:
-            client = gcs_storage.Client()
-            bucket = client.bucket(bucket_name)
-            blob = bucket.blob(blob_path)
-            if blob.exists():
-                return blob.download_as_text(encoding="utf-8")
-        except Exception:  # noqa: BLE001
-            pass
+    sections: list[str] = []
+    for page_path in sorted(paths):
+        content = artifact_store.read_text(page_path)
+        if content:
+            slug = str(page_path).split("/")[-1].replace(".md", "")
+            sections.append(f"<!-- página: {slug} -->\n{content}")
 
-    return None
+    return "\n\n---\n\n".join(sections) if sections else None
+
+
+# Backward-compatible alias
+read_wiki_research_md = read_wiki_content
 
 
 def build_wiki_research_chat_agent(
@@ -46,29 +39,30 @@ def build_wiki_research_chat_agent(
     wiki_content: str,
     athlete_id: int,
 ) -> LlmAgent:
-    """Build an LlmAgent that answers user questions based on wiki research content."""
+    """Build an LlmAgent that answers user questions based on wiki content."""
 
     # Escape braces so the ADK template engine does not interpret {variable}
-    # patterns in the wiki content as context variables. This must be done via
-    # string concatenation (not f-string interpolation) so Python does not
-    # convert {{ back to { before ADK sees the instruction.
+    # patterns in the wiki content as context variables.
     escaped_wiki = wiki_content.replace("{", "{{").replace("}", "}}")
 
     instruction = (
         "Eres un asistente experto en análisis de entrenamiento deportivo para atletas de Strava.\n\n"
-        f"Se te ha proporcionado el informe de investigación (wiki) del atleta con ID {athlete_id}.\n\n"
-        "INFORME DE INVESTIGACIÓN (research.md):\n"
-        "### INICIO DEL INFORME ###\n"
+        f"Se te ha proporcionado la wiki completa del atleta con ID {athlete_id}. "
+        "La wiki contiene múltiples páginas especializadas (perfil de fitness, gestión de fatiga, "
+        "recomendaciones, etc.) que se actualizan automáticamente con cada nueva actividad.\n\n"
+        "WIKI DEL ATLETA:\n"
+        "### INICIO DE LA WIKI ###\n"
     )
     instruction += escaped_wiki
-    instruction += "\n### FIN DEL INFORME ###\n"
+    instruction += "\n### FIN DE LA WIKI ###\n"
 
     instruction += (
         "\n\nInstrucciones de respuesta:\n"
         "- Responde siempre en español.\n"
-        "- Basa tus respuestas en el informe proporcionado.\n"
+        "- Basa tus respuestas en la información de la wiki proporcionada.\n"
+        "- Cuando cites datos, indica de qué página de la wiki provienen.\n"
         "- Si la pregunta no puede responderse con la información disponible, explícalo brevemente "
-        "y sugiere al usuario que ejecute una nueva pipeline de investigación para actualizar el wiki.\n"
+        "y sugiere al usuario que ejecute una nueva pipeline de investigación para actualizar la wiki.\n"
         "- No inventes datos ni tendencias que no estén respaldadas por las fuentes proporcionadas.\n"
         "- Sé conciso pero completo."
     )

@@ -9,8 +9,15 @@ from typing import Any
 
 from .connectors.base import DataConnector
 from .connectors.strava import StravaConnector
-from .research_wiki_agent import run_deep_research_wiki_agent
 from .storage_backend import ArtifactStore, AthleteStateStore, utc_now_iso
+from .wiki_llm import (
+    bootstrap_wiki,
+    format_log_entry,
+    generate_index,
+    triage_activity,
+    update_page,
+)
+from .wiki_pages import PAGE_SLUGS
 
 _RESEARCH_INPUT_PREFIX = "pipeline/research-wiki-input"
 _LATEST_ACTIVITIES_LIMIT = 10
@@ -356,23 +363,6 @@ def _aggregate_activity_metrics(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _read_existing_research(artifact_store: ArtifactStore, athlete_id: int) -> str | None:
-    report_relative_path = f"wiki/{athlete_id}/research.md"
-    return artifact_store.read_text(report_relative_path)
-
-
-def _write_research_outputs(
-    artifact_store: ArtifactStore,
-    athlete_id: int,
-    report_markdown: str,
-) -> dict[str, str]:
-    report_relative_path = f"wiki/{athlete_id}/research.md"
-    report_uri = artifact_store.write_text(report_relative_path, report_markdown)
-    return {
-        "report_path": report_uri,
-        "storage_mode": artifact_store.mode,
-    }
-
 
 def _merge_research_step_into_daily_run(
     *,
@@ -408,6 +398,62 @@ def _merge_research_step_into_daily_run(
     daily_run["updated_at"] = utc_now_iso()
 
     state_store.record_pipeline_run(normalized_daily_run_id, daily_run)
+
+
+# ─── Wiki page helpers ────────────────────────────────────────────────────
+
+
+def _read_wiki_page(artifact_store: ArtifactStore, athlete_id: int, slug: str) -> str | None:
+    return artifact_store.read_text(f"wiki/{athlete_id}/{slug}.md")
+
+
+def _write_wiki_page(artifact_store: ArtifactStore, athlete_id: int, slug: str, content: str) -> str:
+    return artifact_store.write_text(f"wiki/{athlete_id}/{slug}.md", content)
+
+
+def _read_all_wiki_pages(artifact_store: ArtifactStore, athlete_id: int) -> dict[str, str]:
+    pages: dict[str, str] = {}
+    prefix = f"wiki/{athlete_id}/"
+    for path in artifact_store.list_paths(prefix=prefix, suffix=".md"):
+        content = artifact_store.read_text(path)
+        if content:
+            slug = str(path).split("/")[-1].replace(".md", "")
+            pages[slug] = content
+    return pages
+
+
+def _append_log_entry(artifact_store: ArtifactStore, athlete_id: int, entry: str) -> None:
+    log_path = f"wiki/{athlete_id}/_log.md"
+    existing = artifact_store.read_text(log_path) or ""
+    artifact_store.write_text(log_path, existing + entry + "\n")
+
+
+def _extract_athlete_name(profile: dict[str, Any], athlete_id: int) -> str:
+    first = str(profile.get("firstname") or "").strip()
+    last = str(profile.get("lastname") or "").strip()
+    name = f"{first} {last}".strip()
+    return name or f"Atleta {athlete_id}"
+
+
+def _build_activity_summary_for_prompt(record: dict[str, Any], metrics: dict[str, Any]) -> str:
+    sport = str(record.get("sport_type") or record.get("type") or "Unknown").strip()
+    name = str(record.get("name") or "").strip()
+    dist_km = round(_safe_float(metrics.get("target_distance_km"), 0.0), 1)
+    hours = round(_safe_float(metrics.get("target_moving_hours"), 0.0), 2)
+    hr = metrics.get("target_avg_heartrate")
+    watts = metrics.get("target_avg_watts")
+
+    parts = [f"{sport}: {name}" if name else sport]
+    if dist_km > 0:
+        parts.append(f"{dist_km}km")
+    if hours > 0:
+        mins = int(hours * 60)
+        parts.append(f"{mins}min")
+    if hr:
+        parts.append(f"HR {int(hr)}")
+    if watts:
+        parts.append(f"{int(watts)}W")
+    return " | ".join(parts)
 
 
 def research_wiki_pipeline(
@@ -513,22 +559,53 @@ def research_wiki_pipeline(
             profile = athlete_doc.get("profile") if isinstance(athlete_doc.get("profile"), dict) else {}
             athlete_profile = profile or {}
 
-        existing_report = _read_existing_research(artifact_store, athlete_id)
         target_day = _activity_day(record)
+        athlete_name = _extract_athlete_name(athlete_profile, athlete_id)
+        activity_data: dict[str, Any] = {
+            "record": record,
+            "metrics": metrics,
+            "athlete_profile": athlete_profile,
+            "target_date": target_day,
+        }
+
+        index_content = _read_wiki_page(artifact_store, athlete_id, "_index")
+        is_bootstrap = index_content is None
+        affected_slugs: list[str] = []
+        page_errors: list[str] = []
 
         try:
-            research_result = run_deep_research_wiki_agent(
-                athlete_id=athlete_id,
-                target_date=target_day,
-                window_days=2,
-                target_records=[record],
-                historical_records=[],
-                metrics=metrics,
-                athlete_profile=athlete_profile,
-                existing_report=existing_report,
-            )
+            if is_bootstrap:
+                # First activity: generate all pages at once.
+                pages = bootstrap_wiki(activity_data, athlete_name)
+                for slug, content in pages.items():
+                    _write_wiki_page(artifact_store, athlete_id, slug, content)
+                affected_slugs = list(pages.keys())
+            else:
+                # Incremental: triage then update affected pages.
+                affected_slugs = triage_activity(activity_data, index_content)
+
+                for slug in affected_slugs:
+                    try:
+                        current = _read_wiki_page(artifact_store, athlete_id, slug)
+                        updated = update_page(slug, current, activity_data, athlete_name)
+                        _write_wiki_page(artifact_store, athlete_id, slug, updated)
+                    except Exception as page_exc:  # noqa: BLE001
+                        page_errors.append(f"{slug}: {page_exc}")
+
+                # Regenerate _index.md
+                page_summaries: dict[str, str] = {}
+                for slug in PAGE_SLUGS:
+                    page_content = _read_wiki_page(artifact_store, athlete_id, slug)
+                    if page_content:
+                        page_summaries[slug] = page_content[:500]
+                try:
+                    new_index = generate_index(page_summaries, athlete_name)
+                    _write_wiki_page(artifact_store, athlete_id, "_index", new_index)
+                except Exception:  # noqa: BLE001
+                    page_errors.append("_index: failed to regenerate")
+
         except Exception as exc:  # noqa: BLE001
-            error_message = f"research_generation_failed: {exc}"
+            error_message = f"wiki_update_failed: {exc}"
             report["errors"].append(
                 {"activity_id": activity_id, "athlete_id": athlete_id, "error": error_message}
             )
@@ -539,43 +616,51 @@ def research_wiki_pipeline(
             )
             continue
 
-        final_report = str(research_result.get("final_report") or "").strip()
-        if not final_report:
-            report["errors"].append(
-                {"activity_id": activity_id, "athlete_id": athlete_id, "error": "empty_research_report"}
-            )
+        # Append log entry
+        activity_summary = _build_activity_summary_for_prompt(record, metrics)
+        log_entry = format_log_entry(target_day, "analyze", activity_summary, affected_slugs)
+        _append_log_entry(artifact_store, athlete_id, log_entry)
+
+        # Determine status
+        if page_errors:
+            status_label = "partial_success"
             state_store.update_activity_run_status(
                 activity_id,
-                "failed",
-                details={"run_id": run_id, "error": "empty_research_report"},
+                "partial_success",
+                details={
+                    "run_id": run_id,
+                    "affected_pages": affected_slugs,
+                    "page_errors": page_errors,
+                    "processed_at": utc_now_iso(),
+                },
             )
-            continue
+            for pe in page_errors:
+                report["errors"].append(
+                    {"activity_id": activity_id, "athlete_id": athlete_id, "error": pe}
+                )
+        else:
+            status_label = "compiled"
+            state_store.update_activity_run_status(
+                activity_id,
+                "success",
+                details={
+                    "run_id": run_id,
+                    "affected_pages": affected_slugs,
+                    "processed_at": utc_now_iso(),
+                },
+            )
 
-        storage_result = _write_research_outputs(
-            artifact_store,
-            athlete_id,
-            final_report,
-        )
-
-        state_store.update_activity_run_status(
-            activity_id,
-            "success",
-            details={
-                "run_id": run_id,
-                "report_path": storage_result["report_path"],
-                "processed_at": utc_now_iso(),
-            },
-        )
-
+        wiki_dir = f"wiki/{athlete_id}/"
         report["activities"].append(
             {
                 "activity_id": activity_id,
                 "athlete_id": athlete_id,
                 "target_date": target_day,
-                "status": "compiled",
-                "incremental_update": existing_report is not None,
-                "report_path": storage_result["report_path"],
-                "storage_mode": storage_result["storage_mode"],
+                "status": status_label,
+                "incremental_update": not is_bootstrap,
+                "affected_pages": affected_slugs,
+                "report_path": wiki_dir,
+                "storage_mode": artifact_store.mode,
             }
         )
 
@@ -797,11 +882,11 @@ def run_query_layer(
 ) -> dict[str, Any]:
     normalized_top_k = max(1, int(top_k))
     normalized_target_date = target_date.strip() if isinstance(target_date, str) else ""
-    source_path = f"wiki/{athlete_id}/research.md"
+    source_path = f"wiki/{athlete_id}/"
 
     artifact_store = ArtifactStore()
-    report_markdown = _read_existing_research(artifact_store, athlete_id)
-    if not isinstance(report_markdown, str) or not report_markdown.strip():
+    wiki_pages = _read_all_wiki_pages(artifact_store, athlete_id)
+    if not wiki_pages:
         return {
             "mode": "wiki_missing",
             "athlete_id": athlete_id,
@@ -809,8 +894,14 @@ def run_query_layer(
             "context": "",
             "target_date": _normalize_date(normalized_target_date),
             "source_path": source_path,
-            "error": "wiki_report_not_found",
+            "error": "wiki_not_found",
         }
+
+    # Concatenate all wiki pages for search
+    report_markdown = "\n\n---\n\n".join(
+        f"## Página: {slug}\n\n{content}"
+        for slug, content in sorted(wiki_pages.items())
+    )
 
     hits = _build_wiki_hits(
         athlete_id=athlete_id,

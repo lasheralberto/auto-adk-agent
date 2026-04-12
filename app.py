@@ -35,7 +35,7 @@ from agent.tools.pipeline import (
 from agent.tools.pipeline.storage_backend import AthleteStateStore, utc_now_iso
 from agent.agents.wiki_research_chat_agent import (
     build_wiki_research_chat_agent,
-    read_wiki_research_md,
+    read_wiki_content,
 )
 from agent.config.config import get_llm_provider
 
@@ -1149,13 +1149,13 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
     else:
         stream = bool(stream_param)
 
-    wiki_content = read_wiki_research_md(athlete_id)
+    wiki_content = read_wiki_content(athlete_id)
     if wiki_content is None:
         return {
             "error": "wiki_not_found",
             "details": (
-                f"No se encontró research.md para el atleta {athlete_id} "
-                "en el bucket wiki. Ejecuta primero la pipeline de investigación."
+                f"No se encontró la wiki para el atleta {athlete_id}. "
+                "Ejecuta primero la pipeline de investigación."
             ),
         }, 404
 
