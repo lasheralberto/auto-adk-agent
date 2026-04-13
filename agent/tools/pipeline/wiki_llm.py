@@ -26,7 +26,11 @@ def _utc_now_iso() -> str:
 
 
 def _get_model() -> str:
-    return (os.environ.get("WIKI_LLM_MODEL") or "gemini-2.5-flash").strip()
+    raw = (os.environ.get("WIKI_LLM_MODEL") or "gemini-2.5-flash").strip()
+    # Ensure the gemini/ prefix so litellm uses the Gemini API key, not Vertex AI
+    if not raw.startswith("gemini/") and raw.startswith("gemini"):
+        raw = f"gemini/{raw}"
+    return raw
 
 
 def _call_llm(
@@ -36,6 +40,7 @@ def _call_llm(
 ) -> str:
     """Llamada genérica a litellm.completion()."""
     model = _get_model()
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -44,6 +49,8 @@ def _call_llm(
         ],
         "temperature": 0.3,
     }
+    if api_key:
+        kwargs["api_key"] = api_key
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
 

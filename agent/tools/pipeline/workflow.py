@@ -18,6 +18,8 @@ from .wiki_llm import (
     update_page,
 )
 from .wiki_pages import PAGE_SLUGS
+from .wiki_vector_index import index_page as _vector_index_page
+from .wiki_vector_index import index_pages as _vector_index_pages
 
 _RESEARCH_INPUT_PREFIX = "pipeline/research-wiki-input"
 _LATEST_ACTIVITIES_LIMIT = 10
@@ -580,6 +582,11 @@ def research_wiki_pipeline(
                 for slug, content in pages.items():
                     _write_wiki_page(artifact_store, athlete_id, slug, content)
                 affected_slugs = list(pages.keys())
+                # Index every page in the vector store (skip _index / _log).
+                _vector_index_pages(
+                    athlete_id,
+                    {s: c for s, c in pages.items() if not s.startswith("_")},
+                )
             else:
                 # Incremental: triage then update affected pages.
                 affected_slugs = triage_activity(activity_data, index_content)
@@ -589,6 +596,9 @@ def research_wiki_pipeline(
                         current = _read_wiki_page(artifact_store, athlete_id, slug)
                         updated = update_page(slug, current, activity_data, athlete_name)
                         _write_wiki_page(artifact_store, athlete_id, slug, updated)
+                        # Refresh the vector for this page.
+                        if not slug.startswith("_"):
+                            _vector_index_page(athlete_id, slug, updated)
                     except Exception as page_exc:  # noqa: BLE001
                         page_errors.append(f"{slug}: {page_exc}")
 

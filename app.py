@@ -33,6 +33,7 @@ from agent.tools.pipeline import (
     run_strava_ingestion,
 )
 from agent.tools.pipeline.storage_backend import AthleteStateStore, utc_now_iso
+from agent.tools.pipeline.wiki_vector_index import backfill_athlete as _backfill_wiki_index
 from agent.agents.wiki_research_chat_agent import (
     build_wiki_research_chat_agent,
     read_wiki_content,
@@ -373,6 +374,47 @@ def _internal_pipeline_base_url() -> str:
         return configured_url
     port = (os.environ.get("PORT") or "8080").strip() or "8080"
     return f"http://127.0.0.1:{port}"
+
+
+def _dispatch_index_wiki_async(payload: dict[str, Any]) -> dict[str, Any]:
+    dispatch_id = secrets.token_hex(8)
+    endpoint = f"{_internal_pipeline_base_url()}/internal/pipeline/index-wiki"
+
+    configured_token = (os.environ.get("INTERNAL_PIPELINE_TOKEN") or "").strip()
+    headers = {"Content-Type": "application/json"}
+    if configured_token:
+        headers["X-Internal-Token"] = configured_token
+
+    def _run_dispatch() -> None:
+        try:
+            resp = requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=1800,
+            )
+            if not resp.ok:
+                logger.error(
+                    "index-wiki dispatch %s failed: HTTP %s — %s",
+                    dispatch_id,
+                    resp.status_code,
+                    resp.text[:500],
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("index-wiki dispatch %s raised an exception: %s", dispatch_id, exc)
+
+    worker = threading.Thread(
+        target=_run_dispatch,
+        name=f"index-wiki-dispatch-{dispatch_id}",
+        daemon=True,
+    )
+    worker.start()
+
+    return {
+        "status": "queued",
+        "dispatch_id": dispatch_id,
+        "endpoint": endpoint,
+    }
 
 
 def _dispatch_research_wiki_async(payload: dict[str, Any]) -> dict[str, Any]:
@@ -945,6 +987,28 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
             report["finished_at"] = utc_now_iso()
             report["updated_at"] = report["finished_at"]
 
+        report_steps.pop("index_wiki_dispatch", None)
+        try:
+            index_dispatch_result = _dispatch_index_wiki_async(dispatch_payload)
+            report_steps["index_wiki"] = {
+                "stage": "index_wiki",
+                "status": "queued",
+                "queued_at": queued_at,
+                "endpoint": str(index_dispatch_result.get("endpoint") or ""),
+            }
+        except Exception as exc:  # noqa: BLE001
+            report_steps["index_wiki"] = {
+                "stage": "index_wiki",
+                "status": "failed",
+                "endpoint": f"{_internal_pipeline_base_url()}/internal/pipeline/index-wiki",
+                "error": str(exc),
+                "finished_at": utc_now_iso(),
+            }
+            if report.get("status") != "partial_failure":
+                report["status"] = "partial_failure"
+                report["finished_at"] = utc_now_iso()
+                report["updated_at"] = report["finished_at"]
+
         if run_id:
             AthleteStateStore().record_pipeline_run(run_id, report)
 
@@ -973,6 +1037,68 @@ def run_research_wiki_endpoint() -> tuple[dict[str, Any], int]:
         return report, 200
     except Exception as exc:  # noqa: BLE001
         return {"error": "Research wiki pipeline execution failed.", "details": str(exc)}, 500
+
+
+@app.post("/internal/pipeline/index-wiki")
+@app.post("/pipeline/index-wiki")
+def run_index_wiki_endpoint() -> tuple[dict[str, Any], int]:
+    """Re-indexa en Pinecone las páginas existentes de la wiki.
+
+    Acepta ``athlete_id``, ``athlete_ids`` (lista) o ``athlete_ids_csv``.
+    Si no se especifica ninguno, procesa todos los atletas con tokens.
+    """
+    if not _internal_request_authorized():
+        return {"error": "Unauthorized internal pipeline trigger."}, 401
+
+    data = request.get_json(silent=True) or {}
+    athlete_ids_csv = _parse_athlete_ids_csv(data)
+
+    target_ids: list[int] = []
+    if athlete_ids_csv:
+        for raw in athlete_ids_csv.split(","):
+            athlete_id = _to_int(raw, 0)
+            if athlete_id > 0:
+                target_ids.append(athlete_id)
+    else:
+        for record in AthleteStateStore().list_athletes_with_tokens():
+            athlete_id = _to_int(record.get("athlete_id"), 0)
+            if athlete_id > 0:
+                target_ids.append(athlete_id)
+
+    started_at = utc_now_iso()
+    results: list[dict[str, Any]] = []
+    total_pages = 0
+    total_indexed = 0
+    failures = 0
+
+    for athlete_id in target_ids:
+        try:
+            result = _backfill_wiki_index(athlete_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("index-wiki failed for athlete %s: %s", athlete_id, exc)
+            result = {
+                "athlete_id": athlete_id,
+                "status": "failed",
+                "error": str(exc),
+            }
+        total_pages += _to_int(result.get("pages_found"), 0)
+        total_indexed += _to_int(result.get("pages_indexed"), 0)
+        if result.get("status") == "failed":
+            failures += 1
+        results.append(result)
+
+    return {
+        "stage": "index_wiki",
+        "status": "failed" if failures and failures == len(target_ids) else (
+            "partial_failure" if failures else "success"
+        ),
+        "started_at": started_at,
+        "finished_at": utc_now_iso(),
+        "athletes_processed": len(target_ids),
+        "total_pages_found": total_pages,
+        "total_pages_indexed": total_indexed,
+        "results": results,
+    }, 200
 
 
 @app.get("/pipeline/run/<run_id>")
@@ -1097,6 +1223,54 @@ def list_activities_runs_endpoint() -> tuple[dict[str, Any], int]:
     }, 200
 
 
+@app.get("/pipeline/indexed-activities")
+def list_indexed_activities_endpoint() -> tuple[dict[str, Any], int]:
+    """Lista sólo las actividades ya indexadas (status ``success`` o
+    ``partial_success``) para un atleta, ordenadas por fecha desc.
+    """
+    athlete_id = _to_optional_int(request.args.get("athlete_id"))
+    if athlete_id is None or athlete_id <= 0:
+        return {"error": "Query param 'athlete_id' is required."}, 400
+
+    limit = max(1, min(_to_int(request.args.get("limit"), 20), 100))
+
+    state_store = AthleteStateStore()
+    try:
+        success_runs = state_store.list_activity_runs_by_status(
+            "success", athlete_id=athlete_id, limit=limit
+        )
+        partial_runs = state_store.list_activity_runs_by_status(
+            "partial_success", athlete_id=athlete_id, limit=limit
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("list_indexed_activities failed for athlete %s", athlete_id)
+        return {"error": "Failed to list indexed activities.", "details": str(exc)}, 500
+
+    merged: dict[Any, dict[str, Any]] = {}
+    for run in (*success_runs, *partial_runs):
+        key = run.get("activity_id") or run.get("id")
+        if key is None:
+            continue
+        merged[key] = run
+
+    def _sort_key(run: dict[str, Any]) -> str:
+        return str(
+            run.get("processed_at")
+            or run.get("queued_at")
+            or run.get("status_updated_at")
+            or run.get("start_date")
+            or ""
+        )
+
+    runs = sorted(merged.values(), key=_sort_key, reverse=True)[:limit]
+
+    return {
+        "athlete_id": athlete_id,
+        "count": len(runs),
+        "runs": runs,
+    }, 200
+
+
 @app.get("/pipeline/indexing-status")
 def get_indexing_status() -> tuple[dict[str, Any], int]:
     athlete_id = _to_optional_int(request.args.get("athlete_id"))
@@ -1149,7 +1323,7 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
     else:
         stream = bool(stream_param)
 
-    wiki_content = read_wiki_content(athlete_id)
+    wiki_content = read_wiki_content(athlete_id, query=question)
     if wiki_content is None:
         return {
             "error": "wiki_not_found",
@@ -1209,6 +1383,7 @@ def deprecated_legacy_routes() -> tuple[dict[str, Any], int]:
             "daily_pipeline": ["/pipeline/daily", "/internal/pipeline/daily"],
             "stage_pipeline": ["/pipeline/stage", "/internal/pipeline/stage"],
             "research_wiki_pipeline": ["/pipeline/research-wiki", "/internal/pipeline/research-wiki"],
+            "index_wiki_pipeline": ["/pipeline/index-wiki", "/internal/pipeline/index-wiki"],
         },
     }, 410
 

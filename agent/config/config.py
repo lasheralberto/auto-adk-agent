@@ -12,7 +12,7 @@ _SKILLS_DIR = pathlib.Path(__file__).parent.parent / "skills"
 
 def _configure_vertex_backend() -> None:
     """Configure ADK/GenAI clients to use Vertex AI instead of API key mode."""
-    project_id = (get_setting("GOOGLE_CLOUD_PROJECT", "") or "").strip() or "vmo-gemini"
+    project_id = (get_setting("GOOGLE_CLOUD_PROJECT", "") or "").strip() or "strava-chat"
     location = (get_setting("GOOGLE_CLOUD_LOCATION", "") or "").strip() or "us-central1"
     os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
     os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)

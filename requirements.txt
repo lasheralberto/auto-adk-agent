@@ -12,3 +12,4 @@ google-genai
 google-cloud-aiplatform
 gymnasium
 Werkzeug
+pinecone
