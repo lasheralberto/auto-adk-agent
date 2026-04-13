@@ -1,3 +1,19 @@
+## Rules
+Before making any changes, analyze how similar problems are solved in the existing codebase and strictly follow those patterns.
+
+Do NOT introduce new abstractions, layers, or utilities unless they are already widely used in the project or absolutely necessary to fix the issue.
+
+Prioritize the simplest possible solution:
+- Prefer modifying existing code over creating new components
+- Prefer duplication over premature abstraction if the pattern is not already established
+- Avoid refactoring unrelated parts of the code
+
+Limit your changes strictly to what is required to solve the problem. Do not "improve", "optimize", or "future-proof" beyond the scope of the task.
+
+If you consider adding new structures or abstractions, explicitly justify why existing ones cannot be reused.
+
+Your goal is not to design the best possible system, but to integrate the solution with minimal impact and maximum consistency with the current codebase.
+
 ## Propósito del proyecto
 
 **Athlete Intelligence Wiki** — un sistema que construye y mantiene una base de conocimiento deportiva personalizada por atleta, usando LLMs, alimentada por datos de Strava y almacenada en Google Cloud Storage.

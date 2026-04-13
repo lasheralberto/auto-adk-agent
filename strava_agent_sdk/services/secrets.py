@@ -34,6 +34,8 @@ class SecretsService:
         self._credentials_path = (credentials_path or "").strip() or None
         self._env_fallback = env_fallback
         self._cache: dict[tuple[str, str], str] = {}
+        self._auth_checked = False
+        self._auth_info: dict[str, str | bool] | None = None
 
     @property
     def project_id(self) -> str:
@@ -76,6 +78,16 @@ class SecretsService:
             ) from exc
         return self._client
 
+    def _ensure_auth(self) -> None:
+        """Verify GCP auth lazily on first use and cache the result.
+
+        Subsequent calls are no-ops. If verification fails, the flag is not
+        set so the next call will retry after the user fixes credentials.
+        """
+        if self._auth_checked:
+            return
+        self.check_auth()
+
     def check_auth(self) -> dict[str, str | bool]:
         """Verify GCP authentication and return info about the caller identity.
 
@@ -89,16 +101,38 @@ class SecretsService:
         except ImportError as exc:
             raise ExternalServiceError("google-auth is not installed.") from exc
 
-        try:
-            credentials, detected_project = google.auth.default()
-        except Exception as exc:
-            raise ExternalServiceError(
-                "No Application Default Credentials found. Run "
-                "`gcloud auth application-default login`, set "
-                "GOOGLE_APPLICATION_CREDENTIALS to a service account key, "
-                "or pass credentials_path=... when constructing SecretsService. "
-                f"Underlying error: {exc}"
-            ) from exc
+        credentials = None
+        detected_project: str | None = None
+        if self._credentials_path:
+            try:
+                from google.oauth2 import service_account
+
+                credentials = service_account.Credentials.from_service_account_file(
+                    self._credentials_path
+                )
+                import json
+
+                with open(self._credentials_path, encoding="utf-8") as fh:
+                    detected_project = json.load(fh).get("project_id")
+            except FileNotFoundError as exc:
+                raise ValidationError(
+                    f"Service account key not found at '{self._credentials_path}'."
+                ) from exc
+            except Exception as exc:
+                raise ExternalServiceError(
+                    f"Could not load service account from '{self._credentials_path}': {exc}"
+                ) from exc
+        else:
+            try:
+                credentials, detected_project = google.auth.default()
+            except Exception as exc:
+                raise ExternalServiceError(
+                    "No Application Default Credentials found. Run "
+                    "`gcloud auth application-default login`, set "
+                    "GOOGLE_APPLICATION_CREDENTIALS to a service account key, "
+                    "or pass credentials_path=... when constructing SecretsService. "
+                    f"Underlying error: {exc}"
+                ) from exc
 
         identity = getattr(credentials, "service_account_email", None) or "user-credentials"
         credential_type = type(credentials).__name__
@@ -115,12 +149,15 @@ class SecretsService:
                 f"Underlying error: {exc}"
             ) from exc
 
-        return {
+        info: dict[str, str | bool] = {
             "authenticated": True,
             "identity": identity,
             "credential_type": credential_type,
             "project": project,
         }
+        self._auth_checked = True
+        self._auth_info = info
+        return info
 
     def get_secret(
         self,
@@ -138,6 +175,7 @@ class SecretsService:
         if use_cache and cache_key in self._cache:
             return self._cache[cache_key]
 
+        self._ensure_auth()
         try:
             client = self._get_client()
             resource = f"projects/{self.project_id}/secrets/{name}/versions/{version}"
@@ -173,6 +211,7 @@ class SecretsService:
             raise ValidationError("Secret value cannot be None.")
         name = name.strip()
 
+        self._ensure_auth()
         client = self._get_client()
         parent = f"projects/{self.project_id}"
         secret_path = f"{parent}/secrets/{name}"
@@ -209,6 +248,7 @@ class SecretsService:
             raise ValidationError("Secret name is required.")
         name = name.strip()
 
+        self._ensure_auth()
         try:
             client = self._get_client()
             client.delete_secret(request={"name": f"projects/{self.project_id}/secrets/{name}"})
@@ -221,6 +261,7 @@ class SecretsService:
             raise ExternalServiceError(f"Failed to delete secret '{name}': {exc}") from exc
 
     def list_secrets(self) -> list[str]:
+        self._ensure_auth()
         try:
             client = self._get_client()
             parent = f"projects/{self.project_id}"
@@ -249,6 +290,7 @@ class SecretsService:
         name = name.strip()
         member = member.strip()
 
+        self._ensure_auth()
         try:
             client = self._get_client()
             resource = f"projects/{self.project_id}/secrets/{name}"
@@ -309,6 +351,7 @@ class SecretsService:
             raise ValidationError(f"Could not read env file '{env_path}': {exc}") from exc
 
         selected = list(names) if names else list(env_values.keys())
+        self._ensure_auth()
         client = self._get_client()
         from google.api_core import exceptions as gcp_exceptions
 

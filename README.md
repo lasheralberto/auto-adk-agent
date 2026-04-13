@@ -1,4 +1,4 @@
-﻿# Strava Agent SDK
+# Strava Agent SDK
 
 SDK Python async para analizar atletas de Strava, generar wiki deportiva y consultar insights.
 
@@ -10,28 +10,61 @@ cd strava-agent-back
 pip install -e .
 ```
 
-## Variables de entorno
+## Autenticacion con service account JSON
 
-```env
-# Strava (obligatorio)
-STRAVA_CLIENT_ID=12345
-STRAVA_CLIENT_SECRET=tu_secret
-STRAVA_OAUTH_STATE_SECRET=string_largo_seguro
+Coloca el JSON de la service account en la raiz (p.ej. `strava-chat.json`) y pasalo al constructor:
 
-# Storage wiki (obligatorio)
-GCS_KNOWLEDGE_BUCKET=mi-bucket
-# o STRAVA_KNOWLEDGE_BUCKET=mi-bucket
+```python
+from strava_agent_sdk import StravaAgentClient
 
-# LLM (recomendado)
-GOOGLE_API_KEY=AIza...
-GEMINI_MODEL=gemini-2.5-flash
+client = StravaAgentClient(
+    gcp_project_id="strava-chat",
+    gcp_credentials_path="./strava-chat.json",
+)
 
-# Estado (opcional)
-USE_FIRESTORE_STATE=true
-PROJECT_ID=mi-proyecto-gcp
+info = client.check_gcp_auth()
+# {"authenticated": True,
+#  "identity": "153952529856-compute@developer.gserviceaccount.com",
+#  "credential_type": "Credentials",
+#  "project": "strava-chat"}
 ```
 
-Usa `model_name` al llamar metodos del cliente.
+`check_gcp_auth()` es opcional: cualquier metodo de secrets verifica la autenticacion la primera vez que se llama.
+
+Alternativas: `GOOGLE_APPLICATION_CREDENTIALS=/path/sa.json`, `gcloud auth application-default login`, o metadata server en Cloud Run / GCE / GKE (omite `gcp_credentials_path`).
+
+## Cargar secretos desde Secret Manager
+
+Al arrancar la app, vuelca los secretos a `os.environ`:
+
+```python
+client.load_secrets_into_env([
+    "STRAVA_CLIENT_ID",
+    "STRAVA_CLIENT_SECRET",
+    "STRAVA_OAUTH_STATE_SECRET",
+    "GCS_KNOWLEDGE_BUCKET",
+    "GOOGLE_API_KEY",
+    "PINECONE_API_KEY",
+])
+```
+
+La SA runtime solo necesita `roles/secretmanager.secretAccessor`.
+
+## Bootstrap inicial desde .env
+
+Subir un `.env` a Secret Manager y dar acceso a la SA runtime en un solo paso (ejecutar una vez con credenciales de admin):
+
+```python
+client = StravaAgentClient(
+    gcp_project_id="strava-chat",
+    gcp_credentials_path="./admin-key.json",
+)
+
+client.create_secrets_from_env(
+    ".env",
+    grant_access_to="serviceAccount:153952529856-compute@developer.gserviceaccount.com",
+)
+```
 
 ## Uso rapido
 
@@ -40,16 +73,25 @@ import asyncio
 from strava_agent_sdk import StravaAgentClient
 
 async def main():
-    client = StravaAgentClient()
+    client = StravaAgentClient(
+        gcp_project_id="strava-chat",
+        gcp_credentials_path="./strava-chat.json",
+    )
+    client.load_secrets_into_env([
+        "STRAVA_CLIENT_ID",
+        "STRAVA_CLIENT_SECRET",
+        "STRAVA_OAUTH_STATE_SECRET",
+        "GCS_KNOWLEDGE_BUCKET",
+        "GOOGLE_API_KEY",
+        "PINECONE_API_KEY",
+    ])
 
-    # OAuth
     auth = await client.start_strava_oauth(
         redirect_uri="https://miapp.com/auth/strava/callback",
         scope="read,activity:read_all,profile:read_all",
     )
     print(auth["auth_url"])
 
-    # Chat
     res = await client.chat(
         question="¿Como voy esta semana?",
         athlete_id=12345,
@@ -62,100 +104,21 @@ asyncio.run(main())
 
 ## API publica
 
-- Auth:
-`start_strava_oauth`, `exchange_strava_code`, `refresh_strava_token`
-- Chat:
-`chat`, `chat_stream`, `chat_wiki`, `chat_wiki_stream`, `query_wiki`
-- Pipeline:
-`run_daily_pipeline`, `run_research_wiki`, `run_index_wiki`, `run_pipeline_stage`
-- Estado:
-`list_athletes`, `get_pipeline_run`, `list_pipeline_runs`, `list_activity_runs`, `list_indexed_activities`, `get_indexing_status`
-- Secrets (GCP Secret Manager):
-`get_secret`, `set_secret`, `delete_secret`, `list_secrets`, `create_secrets_from_env`, `load_secrets_into_env`, `grant_secret_access`, `check_gcp_auth`
+- **Auth Strava:** `start_strava_oauth`, `exchange_strava_code`, `refresh_strava_token`
+- **Chat:** `chat`, `chat_stream`, `chat_wiki`, `chat_wiki_stream`, `query_wiki`
+- **Pipeline:** `run_daily_pipeline`, `run_research_wiki`, `run_index_wiki`, `run_pipeline_stage`
+- **Estado:** `list_athletes`, `get_pipeline_run`, `list_pipeline_runs`, `list_activity_runs`, `list_indexed_activities`, `get_indexing_status`
+- **Secrets:** `get_secret`, `set_secret`, `delete_secret`, `list_secrets`, `load_secrets_into_env`, `create_secrets_from_env`, `grant_secret_access`, `check_gcp_auth`
 
-## Autenticacion con Google Cloud
+## Permisos IAM
 
-Los metodos de `Secrets` (y cualquier otra integracion con GCP) usan **Application Default Credentials (ADC)**. El SDK no gestiona credenciales por ti; solo las consume.
-
-### Opciones disponibles (en orden de resolucion)
-
-1. **`credentials_path` explicito** en el constructor — la via mas simple:
-   ```python
-   client = StravaAgentClient(
-       gcp_project_id="strava-chat",
-       gcp_credentials_path="./sa-key.json",
-   )
-   ```
-
-2. **Variable `GOOGLE_APPLICATION_CREDENTIALS`** apuntando a un JSON de service account:
-   ```bash
-   export GOOGLE_APPLICATION_CREDENTIALS=/path/sa-key.json
-   ```
-
-3. **Login de usuario con gcloud** (recomendado en local):
-   ```bash
-   gcloud auth application-default login
-   ```
-
-4. **Metadata server** — automatico en Cloud Run, GCE, GKE, Cloud Functions. No hay que configurar nada: se usa la service account adjunta al servicio.
-
-### Project ID
-
-Se resuelve desde `gcp_project_id` (constructor) o, si no se pasa, desde la variable `GOOGLE_CLOUD_PROJECT`.
-
-### Verificar que la autenticacion funciona
-
-```python
-client = StravaAgentClient(gcp_project_id="strava-chat")
-info = client.check_gcp_auth()
-# {"authenticated": True, "identity": "...@strava-chat.iam.gserviceaccount.com",
-#  "credential_type": "Credentials", "project": "strava-chat"}
-```
-
-Si no hay credenciales o no tienen acceso al proyecto, lanza `ExternalServiceError` con un mensaje accionable (que comando ejecutar o que variable definir).
-
-### Permisos IAM requeridos
-
-| Operacion | Rol minimo sobre el secreto o proyecto |
+| Operacion | Rol minimo |
 |---|---|
-| `get_secret` | `roles/secretmanager.secretAccessor` |
-| `set_secret`, `create_secrets_from_env` | `roles/secretmanager.secretVersionAdder` + `roles/secretmanager.admin` para crear |
-| `grant_secret_access` | `roles/secretmanager.admin` |
+| `get_secret`, `load_secrets_into_env` | `roles/secretmanager.secretAccessor` |
 | `list_secrets`, `check_gcp_auth` | `roles/secretmanager.viewer` |
-
-Tipicamente la SA runtime de la app solo necesita `secretAccessor`. Las operaciones de bootstrap (`create_secrets_from_env`, `grant_secret_access`) deberian ejecutarse con credenciales de admin (usuario o SA de CI), no desde la app en produccion.
-
-### Ejemplo: bootstrap de secretos desde .env
-
-```python
-from strava_agent_sdk import StravaAgentClient
-
-client = StravaAgentClient(
-    gcp_project_id="strava-chat",
-    gcp_credentials_path="./admin-key.json",
-)
-client.check_gcp_auth()
-
-client.create_secrets_from_env(
-    ".env",
-    names=["PINECONE_API_KEY", "STRAVA_CLIENT_SECRET"],
-    grant_access_to="serviceAccount:123-compute@developer.gserviceaccount.com",
-)
-```
-
-### Ejemplo: cargar secretos al arrancar la app
-
-```python
-client = StravaAgentClient(gcp_project_id="strava-chat")
-client.load_secrets_into_env([
-    "STRAVA_CLIENT_SECRET",
-    "STRAVA_OAUTH_STATE_SECRET",
-    "PINECONE_API_KEY",
-])
-```
-
-Util en Cloud Run: la SA del servicio autentica sola, los secretos se cargan como `os.environ` y el resto del codigo los lee como si vinieran de `.env`.
+| `set_secret`, `create_secrets_from_env` | `roles/secretmanager.admin` |
+| `grant_secret_access` | `roles/secretmanager.admin` |
 
 ## Compatibilidad
 
-`app.py` se mantiene como wrapper REST fino sobre el SDK para compatibilidad hacia atras.
+`app.py` se mantiene como wrapper REST fino sobre el SDK.
