@@ -85,7 +85,7 @@ async def main():
         question="Como va mi semana de carga?",
         athlete_id=athlete_id,
         access_token=access_token,
-        model_name="gemini-2.5-flash",
+        model_name="gemini/gemini-2.5-flash",
     )
     print("\nRespuesta del agente:\n")
     print(res.response)
@@ -93,5 +93,7 @@ async def main():
 
 asyncio.run(main())
 ```
+
+Si quieres OpenAI en lugar de Gemini, usa un modelo con prefijo explicito, por ejemplo `openai/gpt-5-mini`, y valida que `OPENAI_API_KEY` sea correcta.
 
 Listo. Un script, todo el flujo, y a pedalear.
