@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,35 +40,26 @@ class ArtifactStore:
             or os.environ.get("STRAVA_KNOWLEDGE_BUCKET")
             or ""
         ).strip()
-        self._local_root = Path(
-            os.environ.get("LOCAL_KNOWLEDGE_ROOT", ".knowledge_data")
-        ).resolve()
-        self._local_root.mkdir(parents=True, exist_ok=True)
 
         self._client: Any | None = None
         self._bucket: Any | None = None
 
-        if self._bucket_name and gcs_storage is not None:
-            try:
-                self._client = gcs_storage.Client()
-                self._bucket = self._client.bucket(self._bucket_name)
-            except Exception:  # noqa: BLE001
-                self._client = None
-                self._bucket = None
+        if not self._bucket_name:
+            raise ValueError(
+                "GCS_KNOWLEDGE_BUCKET (or STRAVA_KNOWLEDGE_BUCKET) must be set. "
+                "Local storage is no longer supported."
+            )
+        if gcs_storage is None:
+            raise RuntimeError("google-cloud-storage is not installed.")
+        self._client = gcs_storage.Client()
+        self._bucket = self._client.bucket(self._bucket_name)
 
     @property
     def mode(self) -> str:
-        return "gcs" if self._bucket is not None else "local"
-
-    def _disable_gcs(self) -> None:
-        self._client = None
-        self._bucket = None
+        return "gcs"
 
     def _normalize_path(self, relative_path: str) -> str:
         return str(relative_path).strip().replace("\\", "/").lstrip("/")
-
-    def _local_path(self, relative_path: str) -> Path:
-        return self._local_root / Path(self._normalize_path(relative_path))
 
     def _is_local_only_path(self, relative_path: str) -> bool:
         normalized = f"/{self._normalize_path(relative_path).strip('/')}/"
@@ -76,57 +68,33 @@ class ArtifactStore:
     def write_text(self, relative_path: str, content: str) -> str:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None and not self._is_local_only_path(path):
-            try:
-                blob = self._bucket.blob(path)
-                blob.upload_from_string(content, content_type="text/plain; charset=utf-8")
-                return f"gs://{self._bucket_name}/{path}"
-            except Exception:  # noqa: BLE001
-                self._disable_gcs()
-
-        full_path = self._local_path(path)
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content, encoding="utf-8")
-        return str(full_path)
+        if not self._is_local_only_path(path):
+            blob = self._bucket.blob(path)
+            blob.upload_from_string(content, content_type="text/plain; charset=utf-8")
+            return f"gs://{self._bucket_name}/{path}"
+        raise ValueError(f"Cannot write local-only path '{path}' without local storage.")
 
     def write_json(self, relative_path: str, payload: Any) -> str:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None and not self._is_local_only_path(path):
-            try:
-                blob = self._bucket.blob(path)
-                blob.upload_from_string(
-                    json.dumps(payload, ensure_ascii=False, indent=2),
-                    content_type="application/json; charset=utf-8",
-                )
-                return f"gs://{self._bucket_name}/{path}"
-            except Exception:  # noqa: BLE001
-                self._disable_gcs()
-
-        full_path = self._local_path(path)
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        return str(full_path)
+        if not self._is_local_only_path(path):
+            blob = self._bucket.blob(path)
+            blob.upload_from_string(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                content_type="application/json; charset=utf-8",
+            )
+            return f"gs://{self._bucket_name}/{path}"
+        raise ValueError(f"Cannot write local-only path '{path}' without local storage.")
 
     def read_text(self, relative_path: str) -> str | None:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None and not self._is_local_only_path(path):
-            try:
-                blob = self._bucket.blob(path)
-                if not blob.exists():
-                    return None
-                return blob.download_as_text(encoding="utf-8")
-            except Exception:  # noqa: BLE001
-                self._disable_gcs()
-
-        full_path = self._local_path(path)
-        if not full_path.exists():
-            return None
-        return full_path.read_text(encoding="utf-8")
+        if not self._is_local_only_path(path):
+            blob = self._bucket.blob(path)
+            if not blob.exists():
+                return None
+            return blob.download_as_text(encoding="utf-8")
+        return None
 
     def read_json(self, relative_path: str) -> Any | None:
         text = self.read_text(relative_path)
@@ -141,49 +109,22 @@ class ArtifactStore:
     def exists(self, relative_path: str) -> bool:
         path = self._normalize_path(relative_path)
 
-        if self._bucket is not None and not self._is_local_only_path(path):
-            try:
-                blob = self._bucket.blob(path)
-                return bool(blob.exists())
-            except Exception:  # noqa: BLE001
-                self._disable_gcs()
-
-        return self._local_path(path).exists()
+        if not self._is_local_only_path(path):
+            blob = self._bucket.blob(path)
+            return bool(blob.exists())
+        return False
 
     def list_paths(self, prefix: str, suffix: str = "") -> list[str]:
         normalized_prefix = self._normalize_path(prefix)
         normalized_suffix = suffix.strip()
         paths: list[str] = []
 
-        if self._bucket is not None and not self._is_local_only_path(normalized_prefix):
-            try:
-                for blob in self._client.list_blobs(self._bucket_name, prefix=normalized_prefix):
-                    name = str(blob.name)
-                    if normalized_suffix and not name.endswith(normalized_suffix):
-                        continue
-                    paths.append(name)
-                return sorted(paths)
-            except Exception:  # noqa: BLE001
-                self._disable_gcs()
-
-        root_prefix = self._local_path(normalized_prefix)
-        if not root_prefix.exists():
-            return []
-
-        if root_prefix.is_file():
-            candidate = root_prefix.relative_to(self._local_root).as_posix()
-            if not normalized_suffix or candidate.endswith(normalized_suffix):
-                return [candidate]
-            return []
-
-        for full_path in root_prefix.rglob("*"):
-            if not full_path.is_file():
-                continue
-            candidate = full_path.relative_to(self._local_root).as_posix()
-            if normalized_suffix and not candidate.endswith(normalized_suffix):
-                continue
-            paths.append(candidate)
-
+        if not self._is_local_only_path(normalized_prefix):
+            for blob in self._client.list_blobs(self._bucket_name, prefix=normalized_prefix):
+                name = str(blob.name)
+                if normalized_suffix and not name.endswith(normalized_suffix):
+                    continue
+                paths.append(name)
         return sorted(paths)
 
 
@@ -195,9 +136,7 @@ class AthleteStateStore:
             "FIRESTORE_ACTIVITY_RUNS_COLLECTION", "activities_runs"
         )
         self._state_path = (
-            Path(os.environ.get("LOCAL_KNOWLEDGE_ROOT", ".knowledge_data"))
-            .resolve()
-            .joinpath("state", "athlete_state.json")
+            Path(tempfile.gettempdir()) / "strava_agent_state" / "athlete_state.json"
         )
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -464,7 +464,6 @@ def _parse_chat_request(
 ) -> tuple[
     str | None,
     str | None,
-    str | None,
     bool,
     int,
     str,
@@ -475,13 +474,6 @@ def _parse_chat_request(
 ]:
     question = data.get("message") or data.get("question")
     model = data.get("model")
-    llm_param = (
-        data.get("llm_provider")
-        or data.get("llm")
-        or os.environ.get("LLM_PROVIDER")
-        or os.environ.get("LLM")
-        or ""
-    )
     stream_param = data.get("stream", False)
     strava_access_token = _extract_strava_access_token(data)
     strava_athlete_id = data.get("strava_athlete_id")
@@ -495,14 +487,6 @@ def _parse_chat_request(
         stream = stream_param.lower() in ("true", "1", "yes")
     else:
         stream = bool(stream_param)
-
-    if isinstance(llm_param, str) and "/" in llm_param:
-        parsed_provider, model_from_llm = llm_param.split("/", 1)
-        llm_provider = parsed_provider
-        if model_from_llm and not model:
-            model = model_from_llm.strip()
-    else:
-        llm_provider = llm_param
 
     model_name = model.strip() if isinstance(model, str) and model.strip() else None
 
@@ -539,7 +523,6 @@ def _parse_chat_request(
 
     return (
         question,
-        llm_provider,
         model_name,
         stream,
         top_k,
@@ -650,7 +633,6 @@ def chat_agent() -> Response | tuple[dict[str, Any], int]:
     data = request.get_json(silent=True) or {}
     (
         question,
-        llm_provider,
         model_name_to_use,
         stream,
         top_k,
@@ -663,9 +645,6 @@ def chat_agent() -> Response | tuple[dict[str, Any], int]:
 
     if not isinstance(question, str) or not question.strip():
         return {"error": "Field 'message' or 'question' must be a non-empty string."}, 400
-
-    if not isinstance(llm_provider, str) or not llm_provider.strip():
-        return {"error": "Field 'llm_provider' must be a non-empty string (for example 'openai/gpt-4o')."}, 400
 
     if strava_athlete_id is None or strava_athlete_id <= 0:
         return {
@@ -725,7 +704,6 @@ def chat_agent() -> Response | tuple[dict[str, Any], int]:
         )
 
         orchestrator = build_orchestrator(
-            llm_provider=llm_provider.strip().lower(),
             model_name=model_name_to_use,
             planner_mode=planner_mode,
         )
@@ -1304,16 +1282,7 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
     if athlete_id is None or athlete_id <= 0:
         return {"error": "Field 'athlete_id' is required."}, 400
 
-    llm_param = (
-        data.get("llm_provider")
-        or data.get("llm")
-        or os.environ.get("LLM_PROVIDER")
-        or os.environ.get("LLM")
-        or ""
-    )
-    if not isinstance(llm_param, str) or not llm_param.strip():
-        return {"error": "Field 'llm_provider' must be a non-empty string (e.g. 'google/gemini-2.5-flash')."}, 400
-
+    llm_param = ""
     model_raw = data.get("model")
     model_name = model_raw.strip() if isinstance(model_raw, str) and model_raw.strip() else None
 
@@ -1334,7 +1303,7 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
         }, 404
 
     try:
-        selected_model = get_llm_provider(llm_provider=llm_param.strip().lower(), model_name=model_name)
+        selected_model = get_llm_provider(model_name=model_name)
         wiki_agent = build_wiki_research_chat_agent(
             selected_model=selected_model,
             wiki_content=wiki_content,

@@ -81,11 +81,10 @@ def _build_orchestrator_instruction(normalized_planner_mode: str) -> str:
 
 
 def build_orchestrator(
-    llm_provider: str | None = None,
     model_name: str | None = None,
     planner_mode: str | None = None,
 ) -> LlmAgent:
-    selected_model = get_llm_provider(llm_provider=llm_provider, model_name=model_name)
+    selected_model = get_llm_provider(model_name=model_name)
     normalized_planner_mode = (planner_mode or "full_only").strip().lower()
 
     # Clasifica la intención del mensaje antes de delegar: decide si se trata de
