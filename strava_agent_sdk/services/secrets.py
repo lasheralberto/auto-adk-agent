@@ -311,6 +311,29 @@ class SecretsService:
                 raise NotFoundError(f"Secret '{name}' not found in Secret Manager.") from exc
             raise ExternalServiceError(f"Failed to set IAM on secret '{name}': {exc}") from exc
 
+    def _infer_grant_member_from_credentials(self) -> str | None:
+        """Infer ``serviceAccount:<email>`` from a service-account JSON file."""
+        if not self._credentials_path:
+            return None
+
+        try:
+            import json
+
+            with open(self._credentials_path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except Exception as exc:
+            logger.warning(
+                "Could not infer grant member from credentials file '%s': %s",
+                self._credentials_path,
+                exc,
+            )
+            return None
+
+        email = str(payload.get("client_email") or "").strip()
+        if not email:
+            return None
+        return f"serviceAccount:{email}"
+
     def create_secrets_from_env(
         self,
         env_path: str,
@@ -328,7 +351,9 @@ class SecretsService:
             only_update: if True, skip keys whose secret does not exist yet.
             grant_access_to: one or more IAM members (e.g.
                 ``"serviceAccount:123-compute@developer.gserviceaccount.com"``)
-                that should be granted ``role`` on every uploaded secret.
+                that should be granted ``role`` on every uploaded secret. If
+                omitted and ``credentials_path`` points to a service-account
+                JSON key, this method grants access to that service account.
             role: IAM role to grant when ``grant_access_to`` is set. Defaults
                 to ``roles/secretmanager.secretAccessor``.
 
@@ -356,7 +381,8 @@ class SecretsService:
         from google.api_core import exceptions as gcp_exceptions
 
         if grant_access_to is None:
-            members: list[str] = []
+            inferred_member = self._infer_grant_member_from_credentials()
+            members = [inferred_member] if inferred_member else []
         elif isinstance(grant_access_to, str):
             members = [grant_access_to]
         else:

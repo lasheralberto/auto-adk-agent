@@ -1,124 +1,129 @@
-# Strava Agent SDK
+# Strava Agent SDK - Ejemplos Simples
 
-SDK Python async para analizar atletas de Strava, generar wiki deportiva y consultar insights.
+Guia express para usar el SDK sin drama.
 
-## Instalacion
+## 1) Arranque local con .env
 
-```bash
-git clone <repo-url> strava-agent-back
-cd strava-agent-back
-pip install -e .
+Tu `.env`:
+
+```dotenv
+STRAVA_CLIENT_ID=...
+STRAVA_CLIENT_SECRET=...
+STRAVA_OAUTH_STATE_SECRET=...
+STRAVA_ALLOWED_REDIRECT_URIS=https://miapp.com/auth/strava/callback
 ```
 
-## Autenticacion con service account JSON
+Tu script minimo:
 
-Coloca el JSON de la service account en la raiz (p.ej. `strava-chat.json`) y pasalo al constructor:
+```python
+import asyncio
+from dotenv import load_dotenv
+from strava_agent_sdk import StravaAgentClient
+
+
+async def main():
+    load_dotenv(".env")
+
+    client = StravaAgentClient(
+        gcp_project_id="strava-chat",
+        gcp_credentials_path="./strava-chat.json",
+    )
+
+    auth = await client.start_strava_oauth(
+        redirect_uri="https://miapp.com/auth/strava/callback",
+        scope="read,activity:read_all,profile:read_all",
+    )
+    print("Auth URL:", auth["auth_url"])
+
+
+asyncio.run(main())
+```
+
+## 2) OAuth completo en modo corto
+
+```python
+tokens = await client.exchange_strava_code(
+    code="CODE_FROM_CALLBACK",
+    state="STATE_FROM_CALLBACK",
+    redirect_uri="https://miapp.com/auth/strava/callback",
+    scope="read,activity:read_all,profile:read_all",
+)
+
+tokens = await client.refresh_strava_token(
+    refresh_token=tokens["refresh_token"],
+    athlete_id=int(tokens.get("athlete", {}).get("id") or 0) or None,
+)
+```
+
+## 3) Secret Manager wrapper: volcar .env al proyecto
+
+Este es el flujo para subir variables desde archivo a Secret Manager usando el wrapper del SDK.
 
 ```python
 from strava_agent_sdk import StravaAgentClient
 
 client = StravaAgentClient(
     gcp_project_id="strava-chat",
-    gcp_credentials_path="./strava-chat.json",
+    gcp_credentials_path="./admin-key.json",  # credenciales con permisos admin
 )
 
-info = client.check_gcp_auth()
-# {"authenticated": True,
-#  "identity": "153952529856-compute@developer.gserviceaccount.com",
-#  "credential_type": "Credentials",
-#  "project": "strava-chat"}
+client.check_gcp_auth()
 ```
 
-`check_gcp_auth()` es opcional: cualquier metodo de secrets verifica la autenticacion la primera vez que se llama.
-
-Alternativas: `GOOGLE_APPLICATION_CREDENTIALS=/path/sa.json`, `gcloud auth application-default login`, o metadata server en Cloud Run / GCE / GKE (omite `gcp_credentials_path`).
-
-## Cargar secretos desde Secret Manager
-
-Al arrancar la app, vuelca los secretos a `os.environ`:
+### 3.1 Subir todo el .env
 
 ```python
-client.load_secrets_into_env([
-    "STRAVA_CLIENT_ID",
-    "STRAVA_CLIENT_SECRET",
-    "STRAVA_OAUTH_STATE_SECRET",
-    "GCS_KNOWLEDGE_BUCKET",
-    "GOOGLE_API_KEY",
-    "PINECONE_API_KEY",
-])
+client.create_secrets_from_env(".env")
 ```
 
-La SA runtime solo necesita `roles/secretmanager.secretAccessor`.
-
-## Bootstrap inicial desde .env
-
-Subir un `.env` a Secret Manager y dar acceso a la SA runtime en un solo paso (ejecutar una vez con credenciales de admin):
+### 3.2 Subir solo algunas variables
 
 ```python
-client = StravaAgentClient(
-    gcp_project_id="strava-chat",
-    gcp_credentials_path="./admin-key.json",
+client.create_secrets_from_env(
+    ".env",
+    names=["STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET"],
 )
+```
 
+### 3.3 Solo actualizar secretos ya existentes
+
+```python
+client.create_secrets_from_env(
+    ".env",
+    only_update=True,
+)
+```
+
+### 3.4 Dar acceso explicito a una SA concreta
+
+```python
 client.create_secrets_from_env(
     ".env",
     grant_access_to="serviceAccount:153952529856-compute@developer.gserviceaccount.com",
 )
 ```
 
-## Uso rapido
+### 3.5 Gestion extra (por si hace falta)
 
 ```python
-import asyncio
-from strava_agent_sdk import StravaAgentClient
-
-async def main():
-    client = StravaAgentClient(
-        gcp_project_id="strava-chat",
-        gcp_credentials_path="./strava-chat.json",
-    )
-    client.load_secrets_into_env([
-        "STRAVA_CLIENT_ID",
-        "STRAVA_CLIENT_SECRET",
-        "STRAVA_OAUTH_STATE_SECRET",
-        "GCS_KNOWLEDGE_BUCKET",
-        "GOOGLE_API_KEY",
-        "PINECONE_API_KEY",
-    ])
-
-    auth = await client.start_strava_oauth(
-        redirect_uri="https://miapp.com/auth/strava/callback",
-        scope="read,activity:read_all,profile:read_all",
-    )
-    print(auth["auth_url"])
-
-    res = await client.chat(
-        question="¿Como voy esta semana?",
-        athlete_id=12345,
-        model_name="gemini-2.5-flash",
-    )
-    print(res.response)
-
-asyncio.run(main())
+client.set_secret("FEATURE_FLAG", "on")
+value = client.get_secret("FEATURE_FLAG")
+all_names = client.list_secrets()
+client.grant_secret_access(
+    "FEATURE_FLAG",
+    "serviceAccount:153952529856-compute@developer.gserviceaccount.com",
+)
 ```
 
-## API publica
+## 4) Chat rapido
 
-- **Auth Strava:** `start_strava_oauth`, `exchange_strava_code`, `refresh_strava_token`
-- **Chat:** `chat`, `chat_stream`, `chat_wiki`, `chat_wiki_stream`, `query_wiki`
-- **Pipeline:** `run_daily_pipeline`, `run_research_wiki`, `run_index_wiki`, `run_pipeline_stage`
-- **Estado:** `list_athletes`, `get_pipeline_run`, `list_pipeline_runs`, `list_activity_runs`, `list_indexed_activities`, `get_indexing_status`
-- **Secrets:** `get_secret`, `set_secret`, `delete_secret`, `list_secrets`, `load_secrets_into_env`, `create_secrets_from_env`, `grant_secret_access`, `check_gcp_auth`
+```python
+res = await client.chat(
+    question="Como va mi semana de carga?",
+    athlete_id=12345,
+    model_name="gemini-2.5-flash",
+)
+print(res.response)
+```
 
-## Permisos IAM
-
-| Operacion | Rol minimo |
-|---|---|
-| `get_secret`, `load_secrets_into_env` | `roles/secretmanager.secretAccessor` |
-| `list_secrets`, `check_gcp_auth` | `roles/secretmanager.viewer` |
-| `set_secret`, `create_secrets_from_env` | `roles/secretmanager.admin` |
-| `grant_secret_access` | `roles/secretmanager.admin` |
-
-## Compatibilidad
-
-`app.py` se mantiene como wrapper REST fino sobre el SDK.
+Listo. Cafe, deploy, y a pedalear.
