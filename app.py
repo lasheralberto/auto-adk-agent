@@ -1,17 +1,10 @@
 import asyncio
-import base64
-import hashlib
-import hmac
-import json
 import logging
 import os
 import secrets
 import threading
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -23,22 +16,10 @@ from flask_cors import CORS
 _BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=_BASE_DIR / ".env", override=False)
 
-from agent.app import build_orchestrator
-from agent.runner import run_agent, run_agent_streaming
 from agent.service.stream_utils import _stream_generator
-from agent.tools.pipeline import (
-    research_wiki_pipeline,
-    run_query_layer,
-    run_daily_pipeline,
-    run_strava_ingestion,
-)
 from agent.tools.pipeline.storage_backend import AthleteStateStore, utc_now_iso
-from agent.tools.pipeline.wiki_vector_index import backfill_athlete as _backfill_wiki_index
-from agent.agents.wiki_research_chat_agent import (
-    build_wiki_research_chat_agent,
-    read_wiki_content,
-)
-from agent.config.config import get_llm_provider
+from strava_agent_sdk import StravaAgentClient
+from strava_agent_sdk.errors import ExternalServiceError, NotFoundError, SDKError, ValidationError
 
 app = Flask(__name__)
 
@@ -55,26 +36,7 @@ _configured_origins = [
 allowed_origins = _configured_origins or _DEFAULT_ALLOWED_ORIGINS
 CORS(app, origins=allowed_origins, supports_credentials=True)
 
-_STRAVA_STATE_TTL_SECONDS = 600
-_DEFAULT_STRAVA_SCOPE = "read,activity:read_all,profile:read_all"
-_STRAVA_TOKEN_URL = "https://www.strava.com/api/v3/oauth/token"
-_ALLOWED_STRAVA_SCOPES = {
-    "read",
-    "read_all",
-    "profile:read_all",
-    "profile:write",
-    "activity:read",
-    "activity:read_all",
-    "activity:write",
-}
-_DEFAULT_STRAVA_ALLOWED_REDIRECT_URIS = [
-    "https://strava-adk-agent-frontend.vercel.app/",
-    "https://strava-adk-agent-frontend.vercel.app/auth/strava/callback",
-    "http://localhost:5173/",
-    "http://localhost:5173/auth/strava/callback",
-    "http://127.0.0.1:5173/",
-    "http://127.0.0.1:5173/auth/strava/callback",
-]
+sdk_client = StravaAgentClient()
 
 
 def _to_int(value: Any, default: int = 0) -> int:
@@ -93,20 +55,6 @@ def _to_optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _coerce_bool(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    if isinstance(value, (int, float)):
-        return value != 0
-    return default
 
 
 def _extract_strava_access_token(payload: dict[str, Any]) -> str | None:
@@ -143,217 +91,6 @@ def _parse_athlete_ids_csv(data: dict[str, Any]) -> str:
         return str(athlete_id)
 
     return ""
-
-
-def _normalize_redirect_uri(value: str) -> str:
-    raw_value = value.strip()
-    if not raw_value:
-        return ""
-
-    parsed = urlparse(raw_value)
-    if parsed.scheme.lower() not in {"https", "http"}:
-        return ""
-    if not parsed.netloc:
-        return ""
-    if parsed.fragment:
-        return ""
-
-    host = (parsed.hostname or "").lower()
-    if not host:
-        return ""
-
-    scheme = parsed.scheme.lower()
-    if scheme == "http" and host not in {"localhost", "127.0.0.1"}:
-        return ""
-
-    port = f":{parsed.port}" if parsed.port else ""
-    path = parsed.path or "/"
-    if path != "/" and path.endswith("/"):
-        path = path.rstrip("/")
-    query = f"?{parsed.query}" if parsed.query else ""
-
-    return f"{scheme}://{host}{port}{path}{query}"
-
-
-def _allowed_strava_redirect_uris() -> set[str]:
-    configured_redirect_uris = [
-        candidate.strip()
-        for candidate in (os.environ.get("STRAVA_ALLOWED_REDIRECT_URIS") or "").split(",")
-        if candidate.strip()
-    ]
-    source = configured_redirect_uris or _DEFAULT_STRAVA_ALLOWED_REDIRECT_URIS
-
-    allowed: set[str] = set()
-    for redirect_uri in source:
-        normalized = _normalize_redirect_uri(redirect_uri)
-        if normalized:
-            allowed.add(normalized)
-    return allowed
-
-
-def _is_allowed_redirect_uri(redirect_uri: str) -> bool:
-    return redirect_uri in _allowed_strava_redirect_uris()
-
-
-def _normalize_requested_strava_scope(scope: str, *, default_when_empty: bool = True) -> str:
-    requested = [item.strip() for item in scope.split(",") if item.strip()]
-    normalized: list[str] = []
-    seen: set[str] = set()
-
-    for item in requested:
-        if item not in _ALLOWED_STRAVA_SCOPES or item in seen:
-            continue
-        normalized.append(item)
-        seen.add(item)
-
-    if not normalized and default_when_empty:
-        return _DEFAULT_STRAVA_SCOPE
-
-    if not normalized:
-        return ""
-
-    return ",".join(normalized)
-
-
-def _state_b64encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
-
-
-def _state_b64decode(value: str) -> bytes:
-    padding = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(f"{value}{padding}")
-
-
-def _get_strava_state_secret() -> str:
-    configured_secret = (os.environ.get("STRAVA_OAUTH_STATE_SECRET") or "").strip()
-    if configured_secret:
-        return configured_secret
-    return _get_strava_client_secret()
-
-
-def _create_strava_oauth_state(redirect_uri: str) -> str:
-    payload = {
-        "iat": int(time.time()),
-        "nonce": secrets.token_urlsafe(24),
-        "redirect_uri": redirect_uri,
-    }
-    payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-
-    secret_bytes = _get_strava_state_secret().encode("utf-8")
-    signature = hmac.new(secret_bytes, payload_bytes, hashlib.sha256).digest()
-    return f"{_state_b64encode(payload_bytes)}.{_state_b64encode(signature)}"
-
-
-def _validate_strava_oauth_state(state: str, redirect_uri: str) -> tuple[bool, str]:
-    parts = state.split(".")
-    if len(parts) != 2:
-        return False, "Invalid OAuth state format. Please login again."
-
-    payload_segment, signature_segment = parts
-    try:
-        payload_bytes = _state_b64decode(payload_segment)
-        provided_signature = _state_b64decode(signature_segment)
-    except Exception:  # noqa: BLE001
-        return False, "Invalid OAuth state encoding. Please login again."
-
-    secret_bytes = _get_strava_state_secret().encode("utf-8")
-    expected_signature = hmac.new(secret_bytes, payload_bytes, hashlib.sha256).digest()
-    if not hmac.compare_digest(provided_signature, expected_signature):
-        return False, "Invalid OAuth state signature. Please login again."
-
-    try:
-        payload = json.loads(payload_bytes.decode("utf-8"))
-    except Exception:  # noqa: BLE001
-        return False, "Invalid OAuth state payload. Please login again."
-
-    if not isinstance(payload, dict):
-        return False, "Invalid OAuth state payload. Please login again."
-
-    state_redirect_uri = _normalize_redirect_uri(str(payload.get("redirect_uri") or ""))
-    if state_redirect_uri != redirect_uri:
-        return False, "OAuth state does not match redirect_uri. Please login again."
-
-    issued_at = _to_optional_int(payload.get("iat"))
-    if issued_at is None:
-        return False, "Invalid OAuth state timestamp. Please login again."
-
-    now = int(time.time())
-    if issued_at > now + 60:
-        return False, "Invalid OAuth state timestamp. Please login again."
-    if now - issued_at > _STRAVA_STATE_TTL_SECONDS:
-        return False, "Invalid or expired OAuth state. Please login again."
-
-    nonce = payload.get("nonce")
-    if not isinstance(nonce, str) or len(nonce) < 16:
-        return False, "Invalid OAuth state nonce. Please login again."
-
-    return True, ""
-
-
-def _build_strava_auth_url(client_id: int, redirect_uri: str, scope: str, state: str) -> str:
-    query_payload: dict[str, Any] = {
-        "client_id": client_id,
-        "response_type": "code",
-        "redirect_uri": redirect_uri,
-        "scope": scope,
-        "state": state,
-    }
-
-    approval_prompt = (os.environ.get("STRAVA_APPROVAL_PROMPT") or "").strip().lower()
-    if approval_prompt in {"auto", "force"}:
-        query_payload["approval_prompt"] = approval_prompt
-
-    query = urlencode(query_payload)
-    return f"https://www.strava.com/oauth/authorize?{query}"
-
-
-def _get_strava_client_id() -> int:
-    raw_client_id = (os.environ.get("STRAVA_CLIENT_ID") or "").strip()
-    if not raw_client_id:
-        raise ValueError("STRAVA_CLIENT_ID is not configured in environment")
-
-    try:
-        return int(raw_client_id)
-    except ValueError as exc:
-        raise ValueError("STRAVA_CLIENT_ID must be a valid integer") from exc
-
-
-def _get_strava_client_secret() -> str:
-    client_secret = (os.environ.get("STRAVA_CLIENT_SECRET") or "").strip()
-    if not client_secret:
-        raise ValueError("STRAVA_CLIENT_SECRET is not configured in environment")
-    return client_secret
-
-
-def _exchange_strava_code(client_id: int, client_secret: str, code: str, redirect_uri: str) -> dict[str, Any]:
-    response = requests.post(
-        _STRAVA_TOKEN_URL,
-        data={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def _refresh_strava_token(client_id: int, client_secret: str, refresh_token: str) -> dict[str, Any]:
-    response = requests.post(
-        _STRAVA_TOKEN_URL,
-        data={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
 
 
 def _internal_request_authorized() -> bool:
@@ -534,39 +271,6 @@ def _parse_chat_request(
     )
 
 
-def _normalize_chat_result(result: object) -> dict[str, object]:
-    if isinstance(result, dict):
-        response_text = result.get("response")
-        if response_text is None:
-            response_text = result.get("message")
-        if response_text is None:
-            response_text = result.get("answer")
-
-        tool_calls = result.get("tool_calls")
-        if not isinstance(tool_calls, list):
-            tool_calls = []
-
-        normalized_result: dict[str, object] = {
-            "response": str(response_text) if response_text is not None else "",
-            "tool_calls": tool_calls,
-        }
-
-        structured = result.get("structured")
-        if isinstance(structured, dict):
-            normalized_result["structured"] = structured
-
-        api_version = result.get("api_version")
-        if isinstance(api_version, str) and api_version.strip():
-            normalized_result["api_version"] = api_version.strip()
-
-        return normalized_result
-
-    return {
-        "response": str(result),
-        "tool_calls": [],
-    }
-
-
 @app.get("/health")
 def health() -> tuple[dict[str, Any], int]:
     return {
@@ -580,26 +284,12 @@ def list_athletes() -> tuple[dict[str, Any], int]:
     if not _internal_request_authorized():
         return {"error": "Unauthorized."}, 401
 
-    state_store = AthleteStateStore()
-    athletes = state_store.list_athletes_with_tokens()
-
-    normalized: list[dict[str, Any]] = []
-    for athlete in athletes:
-        profile = athlete.get("profile") if isinstance(athlete.get("profile"), dict) else {}
-        normalized.append(
-            {
-                "athlete_id": athlete.get("athlete_id"),
-                "firstname": profile.get("firstname"),
-                "lastname": profile.get("lastname"),
-                "country": profile.get("country"),
-                "last_sync_epoch": athlete.get("last_sync_epoch"),
-                "last_sync_status": athlete.get("last_sync_status"),
-                "last_indexed_date": athlete.get("last_indexed_date"),
-                "token_updated_at": athlete.get("token_updated_at"),
-            }
-        )
-
-    return {"data": normalized, "count": len(normalized), "state_mode": state_store.mode}, 200
+    try:
+        return asyncio.run(sdk_client.list_athletes()), 200
+    except SDKError as exc:
+        return {"error": str(exc)}, 500
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "Failed to list athletes.", "details": str(exc)}, 500
 
 
 @app.post("/pipeline/query")
@@ -616,13 +306,15 @@ def query_layer_endpoint() -> tuple[dict[str, Any], int]:
         return {"error": "Field 'athlete_id' or 'strava_athlete_id' is required."}, 400
 
     try:
-        payload = run_query_layer(
+        payload = asyncio.run(sdk_client.query_wiki(
             question=question,
             athlete_id=athlete_id,
             top_k=top_k,
             target_date=target_date,
-        )
+        ))
         return payload, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
     except Exception as exc:  # noqa: BLE001
         return {"error": "Query layer execution failed.", "details": str(exc)}, 500
 
@@ -651,76 +343,20 @@ def chat_agent() -> Response | tuple[dict[str, Any], int]:
             "error": "Field 'strava_athlete_id' or 'athlete_id' is required for multi-athlete retrieval."
         }, 400
 
-    try:
-        retrieval_payload = run_query_layer(
-            question=question.strip(),
+    if stream:
+        run_streaming_with_sdk = lambda current_question, _agent: sdk_client.chat_stream(
+            question=current_question,
             athlete_id=int(strava_athlete_id),
+            model_name=model_name_to_use,
             top_k=top_k,
             target_date=query_target_date,
-        )
-        retrieval_context = str(retrieval_payload.get("context") or "").strip()
-        retrieval_hits = retrieval_payload.get("hits")
-        if not isinstance(retrieval_hits, list):
-            retrieval_hits = []
-
-        augmented_question = question.strip()
-
-        if strava_access_token:
-            AthleteStateStore().upsert_tokens(
-                int(strava_athlete_id),
-                {
-                    "access_token": strava_access_token,
-                    "athlete": {"id": int(strava_athlete_id)},
-                },
-            )
-            auth_context = (
-                "Contexto de autenticacion Strava para esta sesion:\n"
-                f"- athlete_id autenticado: {strava_athlete_id}\n"
-                "- Token disponible de forma interna para herramientas backend.\n"
-                "- Nunca reveles credenciales ni solicites secretos al usuario.\n\n"
-            )
-            augmented_question = f"{auth_context}{augmented_question}"
-
-        if retrieval_context:
-            augmented_question = (
-                "Contexto RAG recuperado por Query Layer:\n"
-                "### COMIENZO DEL CONTEXTO ###\n"
-                f"{retrieval_context}\n"
-                "### FIN DEL CONTEXTO ###\n\n"
-                f"Pregunta del usuario: {question.strip()}\n"
-                "Responde con base en el contexto recuperado. "
-                "Si no hay evidencia suficiente, dilo y sugiere correr pipeline diario."
-            )
-        else:
-            augmented_question = (
-                f"Pregunta del usuario: {question.strip()}\n"
-                "No se encontro contexto en el indice para este atleta. "
-                "Responde con esta limitacion y sugiere ejecutar pipeline diario."
-            )
-
-        augmented_question = (
-            f"Contexto de atleta para herramientas: athlete_id={strava_athlete_id}.\n"
-            f"{augmented_question}"
-        )
-
-        orchestrator = build_orchestrator(
-            model_name=model_name_to_use,
-            planner_mode=planner_mode,
-        )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": "Chat preparation failed.", "details": str(exc)}), 500
-
-    if stream:
-        run_streaming_with_format = lambda current_question, current_agent: run_agent_streaming(
-            current_question,
-            current_agent,
+            access_token=strava_access_token,
             response_format=response_format,
+            planner_mode=planner_mode,
         )
         return Response(
             stream_with_context(
-                _stream_generator(augmented_question, orchestrator, run_streaming_with_format)
+                _stream_generator(question.strip(), None, run_streaming_with_sdk)
             ),
             content_type="text/event-stream",
             headers={
@@ -730,184 +366,85 @@ def chat_agent() -> Response | tuple[dict[str, Any], int]:
             },
         )
 
-    result = _normalize_chat_result(
-        asyncio.run(
-            run_agent(
-                augmented_question,
-                orchestrator,
-                response_format=response_format,
-            )
-        )
-    )
-
-    result["retrieval_hits"] = retrieval_hits
-    result["query_mode"] = retrieval_payload.get("mode")
-
-    return jsonify(result)
+    try:
+        result = asyncio.run(sdk_client.chat(
+            question=question.strip(),
+            athlete_id=int(strava_athlete_id),
+            model_name=model_name_to_use,
+            top_k=top_k,
+            target_date=query_target_date,
+            access_token=strava_access_token,
+            response_format=response_format,
+            planner_mode=planner_mode,
+        ))
+        return jsonify(result.to_payload())
+    except ValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except ExternalServiceError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except SDKError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": "Chat execution failed.", "details": str(exc)}), 500
 
 
 @app.get("/auth/strava/start")
 def start_strava_auth() -> tuple[dict[str, Any], int]:
-    redirect_uri = _normalize_redirect_uri((request.args.get("redirect_uri") or "").strip())
+    redirect_uri = (request.args.get("redirect_uri") or "").strip()
     requested_scope = (request.args.get("scope") or "").strip()
-    scope = _normalize_requested_strava_scope(
-        requested_scope,
-        default_when_empty=False,
-    )
-
-    if not redirect_uri:
-        return {"error": "Query param 'redirect_uri' is required and must be a valid URL."}, 400
-    if not requested_scope:
-        return {"error": "Query param 'scope' is required."}, 400
-    if not scope:
-        return {"error": "Query param 'scope' must include at least one allowed scope."}, 400
-    if not _is_allowed_redirect_uri(redirect_uri):
-        return {"error": "redirect_uri is not allowed for this application."}, 400
-
     try:
-        client_id = _get_strava_client_id()
-        state = _create_strava_oauth_state(redirect_uri)
-    except ValueError as exc:
+        payload = asyncio.run(sdk_client.start_strava_oauth(
+            redirect_uri=redirect_uri,
+            scope=requested_scope,
+        ))
+        return payload, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
+    except SDKError as exc:
         return {"error": str(exc)}, 500
-
-    auth_url = _build_strava_auth_url(
-        client_id=client_id,
-        redirect_uri=redirect_uri,
-        scope=scope,
-        state=state,
-    )
-
-    return {
-        "auth_url": auth_url,
-        "state": state,
-        "scope": scope,
-        "redirect_uri": redirect_uri,
-    }, 200
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "Strava OAuth start failed.", "details": str(exc)}, 500
 
 
 @app.post("/auth/strava/exchange")
 def exchange_strava_auth_code() -> tuple[dict[str, Any], int]:
     data = request.get_json(silent=True) or {}
-    code = (data.get("code") or "").strip()
-    state = (data.get("state") or "").strip()
-    redirect_uri = _normalize_redirect_uri((data.get("redirect_uri") or "").strip())
-    callback_scope = _normalize_requested_strava_scope(
-        (data.get("scope") or "").strip(),
-        default_when_empty=False,
-    )
-
-    if not code:
-        return {"error": "Field 'code' is required."}, 400
-    if not state:
-        return {"error": "Field 'state' is required."}, 400
-    if not redirect_uri:
-        return {"error": "Field 'redirect_uri' is required and must be a valid URL."}, 400
-    if not _is_allowed_redirect_uri(redirect_uri):
-        return {"error": "redirect_uri is not allowed for this application."}, 400
-
     try:
-        state_valid, state_error = _validate_strava_oauth_state(state=state, redirect_uri=redirect_uri)
-    except ValueError as exc:
-        return {"error": str(exc)}, 500
-
-    if not state_valid:
-        return {"error": state_error}, 400
-
-    try:
-        client_id = _get_strava_client_id()
-        client_secret = _get_strava_client_secret()
-        token_data = _exchange_strava_code(
-            client_id=client_id,
-            client_secret=client_secret,
-            code=code,
-            redirect_uri=redirect_uri,
-        )
-        token_scope = callback_scope or _normalize_requested_strava_scope(
-            str(token_data.get("scope") or "").strip(),
-            default_when_empty=False,
-        )
-        if token_scope:
-            token_data = dict(token_data)
-            token_data["scope"] = token_scope
-    except requests.HTTPError as exc:
-        error_payload = ""
-        try:
-            error_payload = exc.response.text
-        except Exception:  # noqa: BLE001
-            pass
-        return {
-            "error": "Strava token exchange failed.",
-            "details": error_payload or str(exc),
-        }, 400
-    except ValueError as exc:
+        payload = asyncio.run(sdk_client.exchange_strava_code(
+            code=(data.get("code") or "").strip(),
+            state=(data.get("state") or "").strip(),
+            redirect_uri=(data.get("redirect_uri") or "").strip(),
+            scope=(data.get("scope") or "").strip(),
+        ))
+        return payload, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
+    except ExternalServiceError as exc:
+        return {"error": "Strava token exchange failed.", "details": str(exc)}, 400
+    except SDKError as exc:
         return {"error": str(exc)}, 500
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}, 500
-
-    athlete_payload = token_data.get("athlete")
-    athlete_id = _to_optional_int(athlete_payload.get("id")) if isinstance(athlete_payload, dict) else None
-    if athlete_id is not None:
-        AthleteStateStore().upsert_tokens(athlete_id, token_data)
-
-    return {
-        "token_type": token_data.get("token_type"),
-        "access_token": token_data.get("access_token"),
-        "refresh_token": token_data.get("refresh_token"),
-        "expires_at": token_data.get("expires_at"),
-        "expires_in": token_data.get("expires_in"),
-        "scope": token_data.get("scope"),
-        "athlete": token_data.get("athlete") or {},
-    }, 200
 
 
 @app.post("/auth/strava/refresh")
 def refresh_strava_auth_token() -> tuple[dict[str, Any], int]:
     data = request.get_json(silent=True) or {}
-    refresh_token = (data.get("refresh_token") or "").strip()
-
-    if not refresh_token:
-        return {"error": "Field 'refresh_token' is required."}, 400
-
     try:
-        client_id = _get_strava_client_id()
-        client_secret = _get_strava_client_secret()
-        token_data = _refresh_strava_token(
-            client_id=client_id,
-            client_secret=client_secret,
-            refresh_token=refresh_token,
-        )
-    except requests.HTTPError as exc:
-        error_payload = ""
-        try:
-            error_payload = exc.response.text
-        except Exception:  # noqa: BLE001
-            pass
-        return {
-            "error": "Strava token refresh failed.",
-            "details": error_payload or str(exc),
-        }, 400
-    except ValueError as exc:
+        athlete_id = _to_optional_int(data.get("strava_athlete_id") or data.get("athlete_id"))
+        payload = asyncio.run(sdk_client.refresh_strava_token(
+            refresh_token=(data.get("refresh_token") or "").strip(),
+            athlete_id=athlete_id,
+        ))
+        return payload, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
+    except ExternalServiceError as exc:
+        return {"error": "Strava token refresh failed.", "details": str(exc)}, 400
+    except SDKError as exc:
         return {"error": str(exc)}, 500
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}, 500
-
-    athlete_payload = token_data.get("athlete")
-    athlete_id = _to_optional_int(athlete_payload.get("id")) if isinstance(athlete_payload, dict) else None
-    if athlete_id is None:
-        athlete_id = _to_optional_int(data.get("strava_athlete_id") or data.get("athlete_id"))
-
-    if athlete_id is not None:
-        AthleteStateStore().upsert_tokens(athlete_id, token_data)
-
-    return {
-        "token_type": token_data.get("token_type"),
-        "access_token": token_data.get("access_token"),
-        "refresh_token": token_data.get("refresh_token"),
-        "expires_at": token_data.get("expires_at"),
-        "expires_in": token_data.get("expires_in"),
-        "scope": token_data.get("scope"),
-        "athlete": token_data.get("athlete") or {},
-    }, 200
 
 
 @app.post("/internal/pipeline/daily")
@@ -921,10 +458,10 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
     target_date = data.get("target_date") if isinstance(data.get("target_date"), str) else ""
 
     try:
-        report = run_daily_pipeline(
+        report = asyncio.run(sdk_client.run_daily_pipeline(
             athlete_ids_csv=athlete_ids_csv,
             target_date=target_date,
-        )
+        ))
 
         run_id = str(report.get("run_id") or "").strip()
         queued_at = utc_now_iso()
@@ -991,6 +528,8 @@ def run_daily_pipeline_endpoint() -> tuple[dict[str, Any], int]:
             AthleteStateStore().record_pipeline_run(run_id, report)
 
         return report, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
     except Exception as exc:  # noqa: BLE001
         return {"error": "Daily pipeline execution failed.", "details": str(exc)}, 500
 
@@ -1007,12 +546,14 @@ def run_research_wiki_endpoint() -> tuple[dict[str, Any], int]:
     max_activities = max(1, min(_to_int(data.get("max_activities"), 100), 500))
 
     try:
-        report = research_wiki_pipeline(
+        report = asyncio.run(sdk_client.run_research_wiki(
             athlete_ids_csv=athlete_ids_csv,
             daily_run_id=daily_run_id,
             max_activities=max_activities,
-        )
+        ))
         return report, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
     except Exception as exc:  # noqa: BLE001
         return {"error": "Research wiki pipeline execution failed.", "details": str(exc)}, 500
 
@@ -1029,54 +570,14 @@ def run_index_wiki_endpoint() -> tuple[dict[str, Any], int]:
         return {"error": "Unauthorized internal pipeline trigger."}, 401
 
     data = request.get_json(silent=True) or {}
-    athlete_ids_csv = _parse_athlete_ids_csv(data)
-
-    target_ids: list[int] = []
-    if athlete_ids_csv:
-        for raw in athlete_ids_csv.split(","):
-            athlete_id = _to_int(raw, 0)
-            if athlete_id > 0:
-                target_ids.append(athlete_id)
-    else:
-        for record in AthleteStateStore().list_athletes_with_tokens():
-            athlete_id = _to_int(record.get("athlete_id"), 0)
-            if athlete_id > 0:
-                target_ids.append(athlete_id)
-
-    started_at = utc_now_iso()
-    results: list[dict[str, Any]] = []
-    total_pages = 0
-    total_indexed = 0
-    failures = 0
-
-    for athlete_id in target_ids:
-        try:
-            result = _backfill_wiki_index(athlete_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("index-wiki failed for athlete %s: %s", athlete_id, exc)
-            result = {
-                "athlete_id": athlete_id,
-                "status": "failed",
-                "error": str(exc),
-            }
-        total_pages += _to_int(result.get("pages_found"), 0)
-        total_indexed += _to_int(result.get("pages_indexed"), 0)
-        if result.get("status") == "failed":
-            failures += 1
-        results.append(result)
-
-    return {
-        "stage": "index_wiki",
-        "status": "failed" if failures and failures == len(target_ids) else (
-            "partial_failure" if failures else "success"
-        ),
-        "started_at": started_at,
-        "finished_at": utc_now_iso(),
-        "athletes_processed": len(target_ids),
-        "total_pages_found": total_pages,
-        "total_pages_indexed": total_indexed,
-        "results": results,
-    }, 200
+    try:
+        athlete_ids_csv = _parse_athlete_ids_csv(data)
+        report = asyncio.run(sdk_client.run_index_wiki(athlete_ids_csv=athlete_ids_csv))
+        return report, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "Index wiki pipeline execution failed.", "details": str(exc)}, 500
 
 
 @app.get("/pipeline/run/<run_id>")
@@ -1084,11 +585,14 @@ def get_pipeline_run_endpoint(run_id: str) -> tuple[dict[str, Any], int]:
     if not _internal_request_authorized():
         return {"error": "Unauthorized."}, 401
 
-    state_store = AthleteStateStore()
-    run = state_store.get_pipeline_run(run_id.strip())
-    if run is None:
+    try:
+        return asyncio.run(sdk_client.get_pipeline_run(run_id=run_id.strip())), 200
+    except NotFoundError:
         return {"error": "run_not_found", "run_id": run_id}, 404
-    return run, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "Failed to get pipeline run.", "details": str(exc)}, 500
 
 
 @app.get("/pipeline/runs")
@@ -1099,35 +603,13 @@ def list_pipeline_runs_endpoint() -> tuple[dict[str, Any], int]:
     limit = max(1, min(_to_int(request.args.get("limit"), 20), 100))
     stage = (request.args.get("stage") or "").strip()
 
-    state_store = AthleteStateStore()
-    runs = state_store.list_pipeline_runs(limit=100 if stage else limit)
-
-    if stage:
-        filtered_runs: list[dict[str, Any]] = []
-        for run in runs:
-            if run.get("stage") == stage:
-                filtered_runs.append(run)
-                continue
-
-            steps = run.get("steps")
-            if not isinstance(steps, dict):
-                continue
-
-            matched_step = steps.get(stage)
-            if not isinstance(matched_step, dict):
-                continue
-
-            normalized_run = dict(run)
-            step_status = matched_step.get("status")
-            if isinstance(step_status, str) and step_status.strip():
-                normalized_run["status"] = step_status.strip()
-            filtered_runs.append(normalized_run)
-
-        runs = filtered_runs
-
-    runs = runs[:limit]
-
-    return {"runs": runs, "count": len(runs)}, 200
+    try:
+        payload = asyncio.run(sdk_client.list_pipeline_runs(limit=limit, stage=stage))
+        return payload, 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "Failed to list pipeline runs.", "details": str(exc)}, 500
 
 
 @app.post("/internal/pipeline/stage")
@@ -1141,35 +623,27 @@ def run_pipeline_stage_endpoint() -> tuple[dict[str, Any], int]:
     if not stage:
         return {"error": "Field 'stage' is required."}, 400
 
-    athlete_ids_csv = _parse_athlete_ids_csv(data)
-
     try:
-        if stage == "ingestion":
-            latest_limit = max(1, min(_to_int(data.get("latest_limit"), 10), 200))
-            return run_strava_ingestion(
-                athlete_ids_csv=athlete_ids_csv,
-                latest_limit=latest_limit,
-            ), 200
-
-        if stage == "research_wiki":
-            max_activities = max(1, min(_to_int(data.get("max_activities"), 100), 500))
-            daily_run_id = str(data.get("daily_run_id") or "").strip()
-            return research_wiki_pipeline(
-                athlete_ids_csv=athlete_ids_csv,
-                daily_run_id=daily_run_id,
-                max_activities=max_activities,
-            ), 200
-
+        report = asyncio.run(sdk_client.run_pipeline_stage(
+            stage=stage,
+            athlete_ids_csv=_parse_athlete_ids_csv(data),
+            latest_limit=max(1, min(_to_int(data.get("latest_limit"), 10), 200)),
+            max_activities=max(1, min(_to_int(data.get("max_activities"), 100), 500)),
+            daily_run_id=str(data.get("daily_run_id") or "").strip(),
+        ))
+        return report, 200
+    except ValidationError as exc:
+        if "Unsupported stage" in str(exc):
+            return {
+                "error": "Unsupported stage.",
+                "supported_stages": [
+                    "ingestion",
+                    "research_wiki",
+                ],
+            }, 400
+        return {"error": str(exc)}, 400
     except Exception as exc:  # noqa: BLE001
         return {"error": "Pipeline stage execution failed.", "details": str(exc)}, 500
-
-    return {
-        "error": "Unsupported stage.",
-        "supported_stages": [
-            "ingestion",
-            "research_wiki",
-        ],
-    }, 400
 
 
 @app.get("/pipeline/activities-runs")
@@ -1187,18 +661,13 @@ def list_activities_runs_endpoint() -> tuple[dict[str, Any], int]:
 
     limit = max(1, min(_to_int(request.args.get("limit"), 20), 100))
 
-    state_store = AthleteStateStore()
     try:
-        runs = state_store.list_activity_runs(athlete_id=athlete_id, limit=limit)
+        return asyncio.run(sdk_client.list_activity_runs(athlete_id=athlete_id, limit=limit)), 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
     except Exception as exc:  # noqa: BLE001
         logger.exception("list_activity_runs failed for athlete %s", athlete_id)
         return {"error": "Failed to list activity runs.", "details": str(exc)}, 500
-
-    return {
-        "athlete_id": athlete_id,
-        "count": len(runs),
-        "runs": runs,
-    }, 200
 
 
 @app.get("/pipeline/indexed-activities")
@@ -1212,41 +681,16 @@ def list_indexed_activities_endpoint() -> tuple[dict[str, Any], int]:
 
     limit = max(1, min(_to_int(request.args.get("limit"), 20), 100))
 
-    state_store = AthleteStateStore()
     try:
-        success_runs = state_store.list_activity_runs_by_status(
-            "success", athlete_id=athlete_id, limit=limit
-        )
-        partial_runs = state_store.list_activity_runs_by_status(
-            "partial_success", athlete_id=athlete_id, limit=limit
-        )
+        return asyncio.run(sdk_client.list_indexed_activities(
+            athlete_id=athlete_id,
+            limit=limit,
+        )), 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
     except Exception as exc:  # noqa: BLE001
         logger.exception("list_indexed_activities failed for athlete %s", athlete_id)
         return {"error": "Failed to list indexed activities.", "details": str(exc)}, 500
-
-    merged: dict[Any, dict[str, Any]] = {}
-    for run in (*success_runs, *partial_runs):
-        key = run.get("activity_id") or run.get("id")
-        if key is None:
-            continue
-        merged[key] = run
-
-    def _sort_key(run: dict[str, Any]) -> str:
-        return str(
-            run.get("processed_at")
-            or run.get("queued_at")
-            or run.get("status_updated_at")
-            or run.get("start_date")
-            or ""
-        )
-
-    runs = sorted(merged.values(), key=_sort_key, reverse=True)[:limit]
-
-    return {
-        "athlete_id": athlete_id,
-        "count": len(runs),
-        "runs": runs,
-    }, 200
 
 
 @app.get("/pipeline/indexing-status")
@@ -1255,19 +699,12 @@ def get_indexing_status() -> tuple[dict[str, Any], int]:
     if athlete_id is None or athlete_id <= 0:
         return {"error": "Query param 'athlete_id' is required."}, 400
 
-    state_store = AthleteStateStore()
-    today = datetime.now(timezone.utc).date().isoformat()
-    athlete_doc = state_store.get_athlete(athlete_id) or {}
-    last_indexed = athlete_doc.get("last_indexed_date") or state_store.get_last_indexed_date(athlete_id)
-    last_sync_status = athlete_doc.get("last_sync_status")
-
-    return {
-        "athlete_id": athlete_id,
-        "today": today,
-        "last_indexed_date": last_indexed,
-        "indexed_today": last_indexed == today,
-        "last_sync_status": last_sync_status,
-    }, 200
+    try:
+        return asyncio.run(sdk_client.get_indexing_status(athlete_id=athlete_id)), 200
+    except ValidationError as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "Failed to get indexing status.", "details": str(exc)}, 500
 
 
 @app.post("/chat/wiki")
@@ -1282,7 +719,6 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
     if athlete_id is None or athlete_id <= 0:
         return {"error": "Field 'athlete_id' is required."}, 400
 
-    llm_param = ""
     model_raw = data.get("model")
     model_name = model_raw.strip() if isinstance(model_raw, str) and model_raw.strip() else None
 
@@ -1292,33 +728,15 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
     else:
         stream = bool(stream_param)
 
-    wiki_content = read_wiki_content(athlete_id, query=question)
-    if wiki_content is None:
-        return {
-            "error": "wiki_not_found",
-            "details": (
-                f"No se encontró la wiki para el atleta {athlete_id}. "
-                "Ejecuta primero la pipeline de investigación."
-            ),
-        }, 404
-
-    try:
-        selected_model = get_llm_provider(model_name=model_name)
-        wiki_agent = build_wiki_research_chat_agent(
-            selected_model=selected_model,
-            wiki_content=wiki_content,
-            athlete_id=athlete_id,
-        )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": "Wiki chat agent setup failed.", "details": str(exc)}), 500
-
     if stream:
-        run_streaming_fn = lambda q, agent: run_agent_streaming(q, agent)
+        run_streaming_fn = lambda q, _agent: sdk_client.chat_wiki_stream(
+            question=q,
+            athlete_id=int(athlete_id),
+            model_name=model_name,
+        )
         return Response(
             stream_with_context(
-                _stream_generator(question, wiki_agent, run_streaming_fn)
+                _stream_generator(question, None, run_streaming_fn)
             ),
             content_type="text/event-stream",
             headers={
@@ -1328,11 +746,23 @@ def chat_wiki_agent() -> Response | tuple[dict[str, Any], int]:
             },
         )
 
-    result = _normalize_chat_result(
-        asyncio.run(run_agent(question, wiki_agent))
-    )
-    result["athlete_id"] = athlete_id
-    return jsonify(result)
+    try:
+        result = asyncio.run(sdk_client.chat_wiki(
+            question=question,
+            athlete_id=int(athlete_id),
+            model_name=model_name,
+        ))
+        payload = result.to_payload()
+        payload["athlete_id"] = athlete_id
+        return jsonify(payload)
+    except ValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except NotFoundError as exc:
+        return jsonify({"error": "wiki_not_found", "details": str(exc)}), 404
+    except SDKError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": "Wiki chat agent setup failed.", "details": str(exc)}), 500
 
 
 @app.route("/vector_stores", methods=["GET", "POST", "DELETE"])

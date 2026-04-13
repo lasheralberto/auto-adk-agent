@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strava-agent-sdk"
+version = "0.1.0"
+description = "Async Python SDK for Strava Agent pipelines and chat workflows"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Strava Agent Team" }]
+keywords = ["strava", "sdk", "agent", "llm", "training"]
+dependencies = [
+    "Flask",
+    "python-dotenv",
+    "firebase-admin",
+    "google-cloud-storage",
+    "flask-cors",
+    "requests",
+    "litellm",
+    "openai",
+    "gunicorn",
+    "google-adk",
+    "google-genai",
+    "google-cloud-aiplatform",
+    "gymnasium",
+    "Werkzeug",
+    "pinecone",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent*", "strava_agent_sdk*"]
+
+[tool.setuptools.package-data]
+agent = ["skills/**/SKILL.md"]

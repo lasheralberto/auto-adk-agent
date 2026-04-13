@@ -1,8 +1,19 @@
-# Strava Agent API
+# Strava Agent API + SDK
 
 > REST API conversacional para atletas de Strava. Ingesta actividades, construye una **wiki de conocimiento por atleta** con LLMs, la indexa en **Pinecone** (RAG) y responde preguntas sobre entrenamiento con *streaming*.
 
+Desde abril 2026, la API REST funciona como **wrapper fino** del SDK Python `strava_agent_sdk` (async-first), manteniendo los mismos endpoints públicos.
+
 Desplegable en Docker o Google Cloud Run. Funciona con **OpenAI** o **Gemini** intercambiables.
+
+---
+
+## Cambios recientes (abril 2026)
+
+- Nuevo SDK modular: `strava_agent_sdk`.
+- `app.py` ahora delega en `StravaAgentClient` (menos lógica en endpoints).
+- Endpoints REST se mantienen compatibles (`/chat`, `/chat/wiki`, `/pipeline/*`, `/auth/strava/*`).
+- Empaquetado Python con `pyproject.toml`.
 
 ---
 
@@ -47,8 +58,10 @@ La API expone endpoints REST (`/chat/wiki`, `/pipeline/daily`, `/auth/strava/*`.
 ```bash
 git clone <repo-url> strava-agent-back
 cd strava-agent-back
-pip install -r requirements.txt
+pip install -e .
 ```
+
+Si prefieres flujo legacy, puedes seguir usando `pip install -r requirements.txt`.
 
 ### Paso 2 — Crear `.env`
 
@@ -70,7 +83,7 @@ INTERNAL_PIPELINE_TOKEN=otro_token_aleatorio
 CORS_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-Sin más configuración la API guarda todo en `.knowledge_data/` localmente (ideal para probar). Para producción, añade Firestore + GCS + Pinecone (ver [sección 3](#3-configuración-completa)).
+Importante: para artefactos de wiki se requiere `GCS_KNOWLEDGE_BUCKET` (o `STRAVA_KNOWLEDGE_BUCKET`). Firestore sigue siendo opcional para estado.
 
 ### Paso 3 — Arrancar
 
@@ -237,6 +250,22 @@ Los tokens se persisten internamente — tu cliente **no necesita enviar `access
 ---
 
 ## 5. Cómo consumir la API
+
+### 5.0 También puedes usar el SDK directamente
+
+```python
+import asyncio
+from strava_agent_sdk import StravaAgentClient
+
+async def main():
+  client = StravaAgentClient()
+  res = await client.chat(question="¿Cómo voy esta semana?", athlete_id=12345)
+  print(res.response)
+
+asyncio.run(main())
+```
+
+La API REST usa internamente este mismo cliente.
 
 ### 5.1 Escenario típico
 
