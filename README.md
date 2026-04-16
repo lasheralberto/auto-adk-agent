@@ -32,128 +32,128 @@ This is a comprehensive `README.md` designed for the **Auto-ADK Agent** reposito
 
 ```text
 ├── agent/
-│   ├── agents/          # Specialized agents (Wiki Research Chat, etc.)
-│   ├── skills/          # Discrete capabilities (Intent Routing, Planning, Ingestion)
-│   ├── tools/           # Pipeline tools (Wiki Vector Index, Storage, LLM connectors)
-│   ├── models/          # Domain models (Strava Reinforcement Learning models)
-│   ├── config/          # Environment and Envar management
-│   └── service/         # Streaming and utility services
-├── strava_agent_sdk/    # Specialized SDK for Strava API interaction
-├── app.py               # Main API Entrypoint (FastAPI/Flask)
-├── runner.py            # CLI Execution Entrypoint
-├── Dockerfile           # Container definition
-└── cloudbuild.yaml      # CI/CD Pipeline
+│   ├── agents/          # Specialized agent implementations (Wiki, Chat, etc.)
+│   ├── config/          # Environment and application configuration
+│   ├── models/          # Domain models (e.g., Strava RL models)
+│   ├── service/         # Streaming and API utilities
+│   ├── skills/          # Atomic capabilities (Intent routing, planning, querying)
+│   ├── tools/           # Pipeline tools (Wiki indexers, Strava connectors)
+│   └── runner.py        # Core execution engine
+├── strava_agent_sdk/    # Dedicated SDK for Strava interactions
+├── app.py               # Entry point for the application/API
+├── Dockerfile           # Containerization configuration
+└── cloudbuild.yaml      # CI/CD pipeline for Google Cloud
 ```
 
 ---
 
-## 🛠️ Installation
+## 🛠️ Getting Started
 
 ### Prerequisites
-- Python 3.13+
-- Docker (optional, for containerized deployment)
-- Strava API Credentials (for fitness features)
+*   Python 3.13+
+*   Docker (optional, for containerized deployment)
+*   Strava API Credentials (for fitness features)
+*   OpenAI or Anthropic API Key (configured via `.env`)
 
-### Setup
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/your-repo/auto-adk-agent.git
-   cd auto-adk-agent
-   ```
+### Installation
 
-2. **Set up a virtual environment:**
-   ```bash
-   python3.13 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/your-repo/auto-adk-agent.git
+    cd auto-adk-agent
+    ```
 
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+2.  **Set up a virtual environment:**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
 
-4. **Configure Environment Variables:**
-   Create a `.env` file in the root directory:
-   ```env
-   OPENAI_API_KEY=your_key_here
-   STRAVA_CLIENT_ID=your_id
-   STRAVA_CLIENT_SECRET=your_secret
-   STORAGE_BACKEND=local # or gcp
-   ```
+3.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **Configure environment variables:**
+    Create a `.env` file in the root directory:
+    ```env
+    STRAVA_CLIENT_ID=your_id
+    STRAVA_CLIENT_SECRET=your_secret
+    OPENAI_API_KEY=your_key
+    STORAGE_BACKEND=local # or gcp
+    ```
 
 ---
 
-## 💡 Usage
+## 📖 Usage Examples
 
-### Running the Agent (CLI)
-You can interact with the agent directly through the runner script:
-
-```bash
-python agent/runner.py --task "Analyze my last 3 runs on Strava and compare them to the world record for a marathon."
-```
-
-### Running the API Service
-To start the agent as a web service:
-
-```bash
-python app.py
-```
-
-### Example: Custom Agent Implementation
-The framework allows you to leverage the `strava_agent_sdk` to build custom logic:
+### Running the Agent
+You can trigger the agent via the central `runner.py` or the `app.py` interface.
 
 ```python
-from agent.tools.pipeline.connectors.strava import StravaConnector
-from strava_agent_sdk import StravaClient
+from agent.runner import AgentRunner
 
-# Initialize the connector
-connector = StravaConnector(client_id="...", client_secret="...")
+# Initialize the runner
+runner = AgentRunner()
 
-# Fetch activities through the agent pipeline
-activities = connector.fetch_recent_activities(limit=5)
+# Execute a complex query involving research and planning
+response = runner.run("Analyze my Strava runs from last week and compare them to the training habits of elite marathoners.")
 
-for activity in activities:
-    print(f"Activity: {activity.name} | Distance: {activity.distance}m")
+print(response)
+```
+
+### Researching via Wiki Agent
+The repository includes a specific pipeline for Wikipedia-based RAG:
+
+```python
+from agent.tools.pipeline.research_wiki_agent import WikiResearchAgent
+
+wiki_agent = WikiResearchAgent()
+results = wiki_agent.search_and_summarize("Advanced Reinforcement Learning in Fitness Apps")
 ```
 
 ---
 
-## 🧠 Core Skills
+## 🧠 Skills System
+
+The core of Auto-ADK is its **Skills** directory. Each skill is a self-contained module with its own logic:
 
 | Skill | Description |
 | :--- | :--- |
-| **Intent Router** | Analyzes user input to determine which agent or tool should handle the request. |
-| **Plan-ReAct Planner** | Implements the Reason + Act loop to handle multi-step reasoning tasks. |
-| **Wiki Research** | Performs vector-based searches on Wikipedia to provide factual, grounded answers. |
-| **Strava Ingestion** | Handles OAuth2 flows and ingests fitness telemetry data for analysis. |
+| **intent-router** | Determines if a user wants to check fitness data, search the web, or chat. |
+| **plan-react-planner** | Breaks down a prompt like "How do I improve my pace?" into sub-tasks. |
+| **strava-ingestion** | Handles OAuth and data fetching from Strava. |
+| **query-agent** | Optimized for precise retrieval from the internal vector index. |
 
 ---
 
-## 🚢 Deployment
+## 🐳 Deployment
 
 ### Docker
-Build and run the container locally:
+Build and run the agent in a containerized environment:
+
 ```bash
 docker build -t auto-adk-agent .
 docker run --env-file .env -p 8080:8080 auto-adk-agent
 ```
 
-### Google Cloud Platform
-The repository includes a `cloudbuild.yaml` for automated deployment to Cloud Run or GKE:
+### Google Cloud Build
+The included `cloudbuild.yaml` allows for automated deployment to GCP:
+
 ```bash
-gcloud builds submit --config cloudbuild.yaml
+gcloud builds submit --config cloudbuild.yaml .
 ```
 
 ---
 
-## 📝 Documentation
-- [AGENTS.md](AGENTS.md): Detailed documentation on specialized agent personas.
-- [CLAUDE.md](CLAUDE.md): Development guidelines and formatting rules.
-- [SKILL.md](agent/skills/intent-router/SKILL.md): Individual documentation for each skill module.
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
 ## 🤝 Contributing
+
 1. Fork the Project
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
 3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
@@ -161,9 +161,4 @@ gcloud builds submit --config cloudbuild.yaml
 5. Open a Pull Request
 
 ---
-
-## 📄 License
-Distributed under the MIT License. See `LICENSE` for more information.
-
----
-*Built with ❤️ by the Auto-ADK Team.*
+**Maintained by the ADK Development Team.** _Built for the next generation of autonomous data assistants._
