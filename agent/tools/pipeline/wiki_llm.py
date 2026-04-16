@@ -18,19 +18,13 @@ from typing import Any
 
 import litellm
 
+from agent.config.config import get_wiki_llm_model
+from agent.config.envars import get_secret
 from .wiki_pages import PAGE_SLUGS, PAGES_BY_SLUG, WIKI_PAGES, format_page_catalog_for_prompt
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _get_model() -> str:
-    raw = (os.environ.get("WIKI_LLM_MODEL") or "gemini-2.5-flash").strip()
-    # Ensure the gemini/ prefix so litellm uses the Gemini API key, not Vertex AI
-    if not raw.startswith("gemini/") and raw.startswith("gemini"):
-        raw = f"gemini/{raw}"
-    return raw
 
 
 def _call_llm(
@@ -39,8 +33,16 @@ def _call_llm(
     json_mode: bool = False,
 ) -> str:
     """Llamada genérica a litellm.completion()."""
-    model = _get_model()
-    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    model = get_wiki_llm_model()
+    api_key = (
+        os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or (get_secret("GEMINI_API_KEY", "") or "").strip()
+        or (get_secret("GOOGLE_API_KEY", "") or "").strip()
+    )
+    if api_key:
+        os.environ["GEMINI_API_KEY"] = api_key
+        os.environ["GOOGLE_API_KEY"] = api_key
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": [

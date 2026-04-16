@@ -1,3 +1,33 @@
+## Fuentes de verdad (religión del proyecto)
+
+Antes de cualquier cambio no trivial, consulta estas fuentes. Ganan sobre intuición, sobre código existente, sobre memoria.
+
+### `openspecs/specs/<feature>/spec.md` — contrato por feature
+
+- Una carpeta por feature del SDK. Cada `spec.md` describe: Purpose, Scope, Source Anchors, Public API, Inputs/Outputs, Dependencies, Behaviour, Open Questions.
+- **Leer antes de tocar** el código de esa feature. Si no existe spec o está incompleta, rellénala con lo que descubras **antes** de implementar.
+- **Actualizar cuando el comportamiento cambie.** Un PR que modifica el contrato de una feature sin actualizar su `spec.md` está incompleto.
+- Si el código y la spec divergen, la spec gana salvo que explícitamente acordemos cambiarla. No "arregles" el código silenciosamente para cuadrar con la spec ni al revés — nombra la divergencia.
+-Cada nueva feature o cambio debe ser documentado de forma muy breve en la spec correspondiente
+- Features actuales: `auth`, `chat`, `pipeline`, `activity-ingestion`, `wiki-research`, `wiki-vector-search`, `wiki-chat`, `status`, `secrets`, `rl-model`.
+
+### `DESIGN.md` — sistema de diseño para UI
+
+- Aplicable a **todo trabajo de UI** (frontend en `strava-agent-front` u otros consumidores).
+- Tokens de spacing, radius, color y tipografía son **obligatorios**. Nada de valores arbitrarios (`13px`, `#333`, etc.).
+- Reglas fuertes: un único `--color-accent` por vista, nunca `opacity` para estados disabled, nunca `box-shadow` para selección, nunca animar `color`/`background` >120ms, máximo tres niveles de fondo apilados.
+- Accesibilidad no es opcional: contraste 4.5:1 body, focus visible vía `border`, touch targets 44×44pt.
+- Si la tarea pide algo fuera del sistema, **para y pregunta** antes de inventar un token nuevo.
+
+### Orden de prioridad cuando algo choca
+1. `openspecs/specs/<feature>/spec.md` para comportamiento de feature.
+2. `DESIGN.md` para cualquier decisión visual / de UI.
+3. `AGENTS.md` para el schema de la wiki del agente.
+4. Código existente como referencia de estilo.
+5. Convenciones generales del lenguaje.
+
+---
+
 ## Rules
 CLAUDE.md
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.

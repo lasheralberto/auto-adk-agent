@@ -11,6 +11,7 @@ import requests
 
 from strava_agent_sdk.config import SDKConfig
 from strava_agent_sdk.services import (
+    AgentsService,
     AuthService,
     ChatService,
     PipelineService,
@@ -36,6 +37,7 @@ class StravaAgentClient:
         status_service: StatusService | None = None,
         wiki_chat_service: WikiChatService | None = None,
         secrets_service: SecretsService | None = None,
+        agents_service: AgentsService | None = None,
         gcp_project_id: str | None = None,
         gcp_credentials_path: str | None = None,
     ) -> None:
@@ -45,6 +47,7 @@ class StravaAgentClient:
         self.pipeline = pipeline_service or PipelineService()
         self.status = status_service or StatusService()
         self.wiki_chat_service = wiki_chat_service or WikiChatService()
+        self.agents = agents_service or AgentsService()
         self.secrets = secrets_service or SecretsService(
             project_id=gcp_project_id,
             credentials_path=gcp_credentials_path,
@@ -443,11 +446,13 @@ class StravaAgentClient:
         question: str,
         athlete_id: int,
         model_name: str | None = None,
+        agent_id: str | None = None,
     ) -> ChatResponse:
         return await self.wiki_chat_service.chat(
             question=question,
             athlete_id=athlete_id,
             model_name=model_name,
+            agent_id=agent_id,
         )
 
     async def chat_wiki_stream(
@@ -456,13 +461,58 @@ class StravaAgentClient:
         question: str,
         athlete_id: int,
         model_name: str | None = None,
+        agent_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         async for chunk in self.wiki_chat_service.chat_stream(
             question=question,
             athlete_id=athlete_id,
             model_name=model_name,
+            agent_id=agent_id,
         ):
             yield chunk
+
+    async def list_agents(self) -> dict[str, Any]:
+        return await self.agents.list_agents()
+
+    async def get_agent(self, *, agent_id: str) -> dict[str, Any]:
+        return await self.agents.get_agent(agent_id)
+
+    async def create_agent(
+        self,
+        *,
+        agent_id: str,
+        name: str,
+        description: str = "",
+        instruction_template: str,
+        updated_by: str | None = None,
+    ) -> dict[str, Any]:
+        return await self.agents.create_agent(
+            agent_id=agent_id,
+            name=name,
+            description=description,
+            instruction_template=instruction_template,
+            updated_by=updated_by,
+        )
+
+    async def update_agent(
+        self,
+        *,
+        agent_id: str,
+        instruction_template: str,
+        name: str | None = None,
+        description: str | None = None,
+        updated_by: str | None = None,
+    ) -> dict[str, Any]:
+        return await self.agents.update_agent(
+            agent_id,
+            instruction_template=instruction_template,
+            name=name,
+            description=description,
+            updated_by=updated_by,
+        )
+
+    async def delete_agent(self, *, agent_id: str) -> dict[str, Any]:
+        return await self.agents.delete_agent(agent_id)
 
     def get_secret(
         self,

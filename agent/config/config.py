@@ -8,7 +8,31 @@ from agent.config.envars import get_secret, get_setting, load_environment_from_s
 load_environment_from_sources()
 
 _SKILLS_DIR = pathlib.Path(__file__).parent.parent / "skills"
-_DEFAULT_GEMINI_MODEL = "gemini/gemini-2.5-flash"
+
+# ─── Centralized model configuration ────────────────────────────────────────
+# Todos los modelos usados por el sistema se configuran aquí. Cambiar estos
+# valores (o las variables de entorno correspondientes) es suficiente para
+# propagar el cambio a todas las etapas del pipeline y a los agentes de chat.
+
+# Modelo para el agente principal (chat, planner, sub-agentes ADK).
+AGENT_LLM_MODEL: str = (
+    get_setting("AGENT_LLM_MODEL", "") 
+).strip()
+
+# Modelo para el pipeline de wiki (triage, bootstrap, update por página,
+# regenerado de _index). Se invoca vía litellm.completion().
+WIKI_LLM_MODEL: str = (
+    get_setting("WIKI_LLM_MODEL", "")  
+).strip()
+
+# Modelo de embeddings usado para el índice vectorial de la wiki en Pinecone.
+WIKI_EMBEDDING_MODEL: str = (
+    get_setting("WIKI_EMBEDDING_MODEL", "")  
+).strip()
+
+WIKI_EMBEDDING_DIMENSION: int = int(
+    (get_setting("WIKI_EMBEDDING_DIMENSION", "") or "1024").strip() or 1024
+)
 
 
 def _configure_vertex_backend() -> None:
@@ -26,15 +50,27 @@ _configure_vertex_backend()
 def _normalize_litellm_model_name(raw_model: str) -> str:
     normalized = (raw_model or "").strip()
     if not normalized:
-        return _DEFAULT_GEMINI_MODEL
+        return AGENT_LLM_MODEL
 
     if "/" in normalized:
         return normalized
 
-    if normalized.lower().startswith("gemini"):
-        return f"gemini/{normalized}"
-
     return normalized
+
+
+def get_wiki_llm_model() -> str:
+    """Modelo LLM para el pipeline de wiki, con prefijo gemini/ si aplica."""
+    raw = WIKI_LLM_MODEL
+    return raw
+
+
+def get_wiki_embedding_model() -> str:
+    return WIKI_EMBEDDING_MODEL
+
+
+def get_wiki_embedding_dimension() -> int:
+    return WIKI_EMBEDDING_DIMENSION
+
 
 # ─── Load skills ──────────────────────────────────────────────────────────────
 answer_agent_skill = load_skill_from_dir(_SKILLS_DIR / "answer-agent")
@@ -49,6 +85,11 @@ def get_llm_provider(model_name: str | None = None) -> LiteLlm:
     if google_api_key:
         os.environ["GOOGLE_API_KEY"] = google_api_key
 
-    configured_model = model_name if isinstance(model_name, str) else get_setting("GEMINI_MODEL", "")
-    selected_model = _normalize_litellm_model_name(str(configured_model or ""))
+    # El modelo central se define en AGENT_LLM_MODEL. Si el caller pasa un
+    # model_name explícito, se respeta (y se normaliza para litellm); en caso
+    # contrario se usa el valor centralizado.
+    if model_name:
+        selected_model = _normalize_litellm_model_name(str(model_name))
+    else:
+        selected_model = AGENT_LLM_MODEL
     return LiteLlm(model=selected_model)

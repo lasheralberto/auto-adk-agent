@@ -29,11 +29,14 @@ except Exception:  # noqa: BLE001
     Pinecone = None  # type: ignore[assignment]
     ServerlessSpec = None  # type: ignore[assignment]
 
+from agent.config.config import (
+    get_wiki_embedding_dimension,
+    get_wiki_embedding_model,
+)
+
 
 logger = logging.getLogger(__name__)
 
-_EMBEDDING_MODEL_DEFAULT = "llama-text-embed-v2"
-_EMBEDDING_DIMENSION_DEFAULT = 1024
 _INDEX_NAME_DEFAULT = "strava-wiki"
 _CLOUD_DEFAULT = "aws"
 _REGION_DEFAULT = "us-east-1"
@@ -47,15 +50,11 @@ _index_name: str | None = None
 
 
 def _embedding_model() -> str:
-    return (os.environ.get("WIKI_EMBEDDING_MODEL") or _EMBEDDING_MODEL_DEFAULT).strip()
+    return get_wiki_embedding_model()
 
 
 def _embedding_dimension() -> int:
-    raw = os.environ.get("WIKI_EMBEDDING_DIMENSION", "").strip()
-    try:
-        return int(raw) if raw else _EMBEDDING_DIMENSION_DEFAULT
-    except ValueError:
-        return _EMBEDDING_DIMENSION_DEFAULT
+    return get_wiki_embedding_dimension()
 
 
 def _namespace_for(athlete_id: int) -> str:

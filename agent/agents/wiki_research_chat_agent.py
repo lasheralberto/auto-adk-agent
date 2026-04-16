@@ -5,6 +5,12 @@ from typing import Any
 
 from google.adk.agents import LlmAgent
 
+from agent.agents.agent_prompts import (
+    AgentPromptStore,
+    WIKI_CONTEXT_BLOCK,
+    WIKI_RESEARCH_CHAT_AGENT_ID,
+    render_template,
+)
 from agent.tools.pipeline.storage_backend import ArtifactStore
 from agent.tools.pipeline.wiki_vector_index import retrieve_relevant_slugs
 
@@ -93,37 +99,32 @@ def build_wiki_research_chat_agent(
     selected_model: Any,
     wiki_content: str,
     athlete_id: int,
+    instruction_template: str | None = None,
 ) -> LlmAgent:
-    """Build an LlmAgent that answers user questions based on wiki content."""
+    """Build an LlmAgent that answers user questions based on wiki content.
+
+    ``instruction_template`` can override the prompt (for testing); otherwise
+    the active template is loaded from the Firestore-backed ``agents``
+    collection via :class:`AgentPromptStore`.
+    """
 
     # Escape braces so the ADK template engine does not interpret {variable}
     # patterns in the wiki content as context variables.
     escaped_wiki = wiki_content.replace("{", "{{").replace("}", "}}")
 
-    instruction = (
-        "Eres un asistente experto en análisis de entrenamiento deportivo para atletas de Strava.\n\n"
-        f"Se te ha proporcionado un subconjunto de la wiki del atleta con ID {athlete_id}, "
-        "seleccionado por relevancia frente a la pregunta del usuario (RAG). "
-        "La wiki completa contiene múltiples páginas especializadas (perfil de fitness, "
-        "gestión de fatiga, recomendaciones, etc.) que se actualizan automáticamente con "
-        "cada nueva actividad.\n\n"
-        "WIKI DEL ATLETA (páginas relevantes):\n"
-        "### INICIO DE LA WIKI ###\n"
-    )
-    instruction += escaped_wiki
-    instruction += "\n### FIN DE LA WIKI ###\n"
+    if instruction_template is None:
+        instruction_template = AgentPromptStore().get_template(WIKI_RESEARCH_CHAT_AGENT_ID)
 
-    instruction += (
-        "\n\nInstrucciones de respuesta:\n"
-        "- Responde siempre en español.\n"
-        "- Basa tus respuestas en la información de la wiki proporcionada.\n"
-        "- Cuando cites datos, indica de qué página de la wiki provienen.\n"
-        "- Si la pregunta no puede responderse con las páginas proporcionadas, "
-        "explícalo brevemente y sugiere al usuario reformular la pregunta o "
-        "ejecutar una nueva pipeline de investigación para actualizar la wiki.\n"
-        "- No inventes datos ni tendencias que no estén respaldadas por las fuentes proporcionadas.\n"
-        "- Sé conciso pero completo."
+    # Always inject wiki context block — user templates are pure instructions,
+    # they never reference %%ATHLETE_ID%% or %%WIKI%% manually.
+    context_block = render_template(
+        WIKI_CONTEXT_BLOCK,
+        {
+            "%%ATHLETE_ID%%": str(athlete_id),
+            "%%WIKI%%": escaped_wiki,
+        },
     )
+    instruction = context_block + instruction_template
 
     return LlmAgent(
         name="wiki_research_chat_agent",

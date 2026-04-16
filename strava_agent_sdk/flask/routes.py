@@ -505,6 +505,9 @@ def register_routes(
         model_raw = data.get("model")
         model_name = model_raw.strip() if isinstance(model_raw, str) and model_raw.strip() else None
 
+        agent_id_raw = data.get("agent_id")
+        agent_id = agent_id_raw.strip() if isinstance(agent_id_raw, str) and agent_id_raw.strip() else None
+
         stream_param = data.get("stream", False)
         if isinstance(stream_param, str):
             stream = stream_param.lower() in ("true", "1", "yes")
@@ -516,6 +519,7 @@ def register_routes(
                 question=q,
                 athlete_id=int(athlete_id),
                 model_name=model_name,
+                agent_id=agent_id,
             )
             return Response(
                 stream_with_context(
@@ -534,6 +538,7 @@ def register_routes(
                 question=question,
                 athlete_id=int(athlete_id),
                 model_name=model_name,
+                agent_id=agent_id,
             ))
             payload = result.to_payload()
             payload["athlete_id"] = athlete_id
@@ -546,6 +551,104 @@ def register_routes(
             return jsonify({"error": str(exc)}), 500
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": "Wiki chat agent setup failed.", "details": str(exc)}), 500
+
+    @app_get("/agents")
+    def list_agents_endpoint() -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+        try:
+            return asyncio.run(sdk_client.list_agents()), 200
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to list agents.", "details": str(exc)}, 500
+
+    @app_get("/agents/<agent_id>")
+    def get_agent_endpoint(agent_id: str) -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+        try:
+            return asyncio.run(sdk_client.get_agent(agent_id=agent_id.strip())), 200
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except NotFoundError as exc:
+            return {"error": str(exc)}, 404
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to get agent.", "details": str(exc)}, 500
+
+    @app_post("/agents")
+    def create_agent_endpoint() -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+        data = request.get_json(silent=True) or {}
+
+        agent_id = (data.get("agent_id") or "").strip()
+        name = (data.get("name") or "").strip()
+        instruction_template = data.get("instruction_template")
+        description = (data.get("description") or "").strip()
+        updated_by_raw = data.get("updated_by")
+        updated_by = updated_by_raw.strip() if isinstance(updated_by_raw, str) and updated_by_raw.strip() else None
+
+        if not agent_id:
+            return {"error": "Field 'agent_id' is required."}, 400
+        if not name:
+            return {"error": "Field 'name' is required."}, 400
+        if not isinstance(instruction_template, str) or not instruction_template.strip():
+            return {"error": "Field 'instruction_template' must be a non-empty string."}, 400
+
+        try:
+            payload = asyncio.run(sdk_client.create_agent(
+                agent_id=agent_id,
+                name=name,
+                description=description,
+                instruction_template=instruction_template,
+                updated_by=updated_by,
+            ))
+            return payload, 201
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to create agent.", "details": str(exc)}, 500
+
+    @app_route("/agents/<agent_id>", methods=["PUT", "POST"])
+    def update_agent_endpoint(agent_id: str) -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+        data = request.get_json(silent=True) or {}
+        instruction_template = data.get("instruction_template")
+        name = data.get("name")
+        description = data.get("description")
+        updated_by_raw = data.get("updated_by")
+        updated_by = updated_by_raw.strip() if isinstance(updated_by_raw, str) and updated_by_raw.strip() else None
+
+        if not isinstance(instruction_template, str) or not instruction_template.strip():
+            return {"error": "Field 'instruction_template' must be a non-empty string."}, 400
+
+        try:
+            payload = asyncio.run(sdk_client.update_agent(
+                agent_id=agent_id.strip(),
+                instruction_template=instruction_template,
+                name=name.strip() if isinstance(name, str) and name.strip() else None,
+                description=description.strip() if isinstance(description, str) else None,
+                updated_by=updated_by,
+            ))
+            return payload, 200
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except NotFoundError as exc:
+            return {"error": str(exc)}, 404
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to update agent.", "details": str(exc)}, 500
+
+    @app_delete("/agents/<agent_id>")
+    def delete_agent_endpoint(agent_id: str) -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+        try:
+            payload = asyncio.run(sdk_client.delete_agent(agent_id=agent_id.strip()))
+            return payload, 200
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to delete agent.", "details": str(exc)}, 500
 
     @app_route("/vector_stores", methods=["GET", "POST", "DELETE"])
     @app_post("/add_to_vs")
