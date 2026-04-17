@@ -11,6 +11,7 @@ import requests
 
 from strava_agent_sdk.config import SDKConfig
 from strava_agent_sdk.services import (
+    AgentDefinitionService,
     AgentsService,
     AuthService,
     ChatService,
@@ -38,6 +39,7 @@ class StravaAgentClient:
         wiki_chat_service: WikiChatService | None = None,
         secrets_service: SecretsService | None = None,
         agents_service: AgentsService | None = None,
+        agent_definition_service: AgentDefinitionService | None = None,
         gcp_project_id: str | None = None,
         gcp_credentials_path: str | None = None,
     ) -> None:
@@ -48,6 +50,7 @@ class StravaAgentClient:
         self.status = status_service or StatusService()
         self.wiki_chat_service = wiki_chat_service or WikiChatService()
         self.agents = agents_service or AgentsService()
+        self.agent_definition = agent_definition_service or AgentDefinitionService()
         self.secrets = secrets_service or SecretsService(
             project_id=gcp_project_id,
             credentials_path=gcp_credentials_path,
@@ -513,6 +516,30 @@ class StravaAgentClient:
 
     async def delete_agent(self, *, agent_id: str) -> dict[str, Any]:
         return await self.agents.delete_agent(agent_id)
+
+    async def get_agent_definition(self, *, athlete_id: str | int) -> dict[str, Any]:
+        return await self.agent_definition.get_definition(athlete_id)
+
+    async def update_agent_definition(
+        self,
+        *,
+        athlete_id: str | int,
+        toml_content: str,
+        version: int,
+        updated_by: str | None = None,
+    ) -> dict[str, Any]:
+        return await self.agent_definition.update_definition(
+            athlete_id=athlete_id,
+            toml_content=toml_content,
+            version=version,
+            updated_by=updated_by,
+        )
+
+    async def delete_agent_definition(self, *, athlete_id: str | int) -> dict[str, Any]:
+        return await self.agent_definition.delete_definition(athlete_id)
+
+    async def validate_agent_definition(self, *, toml_content: str) -> dict[str, Any]:
+        return await self.agent_definition.validate_definition(toml_content)
 
     def get_secret(
         self,

@@ -14,3 +14,4 @@ google-cloud-aiplatform
 gymnasium
 Werkzeug
 pinecone
+tomli

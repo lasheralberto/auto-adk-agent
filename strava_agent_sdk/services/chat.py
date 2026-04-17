@@ -221,6 +221,7 @@ class ChatService:
         orchestrator = build_orchestrator(
             model_name=model_name,
             planner_mode=_normalize_planner_mode(planner_mode),
+            athlete_id=athlete_id,
         )
 
         return {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, AsyncIterator
 
+from agent.builder import AgentDefinitionBuilder
 from agent.agents.agent_prompts import AgentPromptStore, WIKI_RESEARCH_CHAT_AGENT_ID
 from agent.agents.wiki_research_chat_agent import build_wiki_research_chat_agent, read_wiki_content
 from agent.config.config import get_llm_provider
@@ -10,6 +11,9 @@ from agent.runner import run_agent, run_agent_streaming
 
 from strava_agent_sdk.errors import NotFoundError, ValidationError
 from strava_agent_sdk.types import ChatResponse
+
+
+_definition_builder = AgentDefinitionBuilder()
 
 
 def _normalize_chat_result(result: object) -> dict[str, Any]:
@@ -107,9 +111,25 @@ class WikiChatService:
             )
 
         selected_model = get_llm_provider(model_name=model_name)
+
         instruction_template = await asyncio.to_thread(
-            AgentPromptStore().get_template, resolved_agent_id
+            _definition_builder.resolve_wiki_chat_instruction_from_custom_definition,
+            athlete_id,
+            agent_id=resolved_agent_id,
         )
+
+        if not instruction_template:
+            try:
+                instruction_template = await asyncio.to_thread(
+                    AgentPromptStore().get_template,
+                    resolved_agent_id,
+                )
+            except ValueError:
+                instruction_template = await asyncio.to_thread(
+                    AgentPromptStore().get_template,
+                    WIKI_RESEARCH_CHAT_AGENT_ID,
+                )
+
         wiki_agent = build_wiki_research_chat_agent(
             selected_model=selected_model,
             wiki_content=wiki_content,

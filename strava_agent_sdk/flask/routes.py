@@ -10,7 +10,7 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 from agent.service.stream_utils import _stream_generator
 from agent.tools.pipeline.storage_backend import AthleteStateStore, utc_now_iso
 from strava_agent_sdk import StravaAgentClient
-from strava_agent_sdk.errors import ExternalServiceError, NotFoundError, SDKError, ValidationError
+from strava_agent_sdk.errors import ConflictError, ExternalServiceError, NotFoundError, SDKError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ def register_routes(
 ) -> None:
     app_get = _make_filtered_decorator(app.get, route_filter)
     app_post = _make_filtered_decorator(app.post, route_filter)
+    app_put = _make_filtered_decorator(app.put, route_filter)
     app_delete = _make_filtered_decorator(app.delete, route_filter)
     app_route = _make_filtered_decorator(app.route, route_filter)
 
@@ -649,6 +650,87 @@ def register_routes(
             return {"error": str(exc)}, 400
         except Exception as exc:  # noqa: BLE001
             return {"error": "Failed to delete agent.", "details": str(exc)}, 500
+
+    @app_get("/agent-definition/<athlete_id>")
+    def get_agent_definition_endpoint(athlete_id: str) -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+
+        try:
+            payload = asyncio.run(sdk_client.get_agent_definition(athlete_id=athlete_id.strip()))
+            return payload, 200
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to get agent definition.", "details": str(exc)}, 500
+
+    @app_put("/agent-definition/<athlete_id>")
+    def put_agent_definition_endpoint(athlete_id: str) -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+
+        data = request.get_json(silent=True) or {}
+        toml_content = data.get("toml_content")
+        version = data.get("version")
+        updated_by_raw = data.get("updated_by")
+        updated_by = updated_by_raw.strip() if isinstance(updated_by_raw, str) and updated_by_raw.strip() else None
+
+        if not isinstance(toml_content, str) or not toml_content.strip():
+            return {"error": "Field 'toml_content' must be a non-empty string."}, 400
+
+        parsed_version = sdk_client.to_optional_int(version)
+        if parsed_version is None or parsed_version < 0:
+            return {"error": "Field 'version' must be an integer >= 0."}, 400
+
+        try:
+            payload = asyncio.run(sdk_client.update_agent_definition(
+                athlete_id=athlete_id.strip(),
+                toml_content=toml_content,
+                version=parsed_version,
+                updated_by=updated_by,
+            ))
+            return payload, 200
+        except ConflictError as exc:
+            return {"error": str(exc)}, 409
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to update agent definition.", "details": str(exc)}, 500
+
+    @app_delete("/agent-definition/<athlete_id>")
+    def delete_agent_definition_endpoint(athlete_id: str) -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+
+        try:
+            payload = asyncio.run(sdk_client.delete_agent_definition(athlete_id=athlete_id.strip()))
+            return payload, 200
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to delete agent definition.", "details": str(exc)}, 500
+
+    @app_post("/agent-definition/<athlete_id>/validate")
+    def validate_agent_definition_endpoint(athlete_id: str) -> tuple[dict[str, Any], int]:
+        if not sdk_client.internal_request_authorized(headers=request.headers):
+            return {"error": "Unauthorized."}, 401
+
+        if not athlete_id.strip():
+            return {"error": "athlete_id is required."}, 400
+
+        data = request.get_json(silent=True) or {}
+        toml_content = data.get("toml_content")
+        if not isinstance(toml_content, str) or not toml_content.strip():
+            return {"error": "Field 'toml_content' must be a non-empty string."}, 400
+
+        try:
+            payload = asyncio.run(sdk_client.validate_agent_definition(toml_content=toml_content))
+            status_code = 200 if payload.get("valid") else 400
+            return payload, status_code
+        except ValidationError as exc:
+            return {"valid": False, "errors": [str(exc)]}, 400
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to validate agent definition.", "details": str(exc)}, 500
 
     @app_route("/vector_stores", methods=["GET", "POST", "DELETE"])
     @app_post("/add_to_vs")
