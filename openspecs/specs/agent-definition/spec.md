@@ -1,119 +1,114 @@
-# Spec: Agent Definition (Prompt-Only UI)
+# Spec: Agent Definition (v3 — Multi-Agent Patterns)
 
 ## Purpose
 
-Permitir a cada atleta crear agentes personalizados con la interfaz mas simple posible:
+Permitir a cada atleta diseñar visualmente un sistema multi-agente usando los
+patrones nativos de Google ADK:
 
-- solo prompt por agente nuevo
-- sin configuracion de tools
-- sin configuracion de skill
-- sin topologia manual (sin edges/sub_agents en UI)
-- sin formularios avanzados por agente
+- **Coordinator/Dispatcher** — un LlmAgent central delega a sub-agentes.
+- **Sequential Pipeline** — SequentialAgent ejecuta sub-agentes en orden fijo.
+- **Parallel Fan-Out** — ParallelAgent ejecuta sub-agentes concurrentemente.
+- **Loop / Iterative Refinement** — LoopAgent repite sub-agentes hasta condición.
+- **Hierarchical** — árboles multi-nivel combinando los patrones anteriores.
 
-El sistema mantiene el runtime multi-agente, pero la complejidad queda en el backend. El usuario solo escribe prompts.
+El usuario define agentes, sus relaciones (`sub_agents`) y tipo de composición
+desde un panel visual. El backend traduce el TOML a un grafo ADK real.
 
 ## Scope
 
 - In scope:
-  - Schema TOML simplificado para agentes prompt-only.
-  - Almacenamiento en Firestore collection `agent_definition_file` (doc.id = athlete_id).
-  - Endpoints CRUD + validate para definition file (se mantienen).
-  - Builder que compone:
-    - base orchestration interna (fija)
-    - agentes custom creados desde prompts
-  - UI de creacion/edicion en formato lista simple (sin React Flow obligatorio).
-  - Validacion semantica y optimistic locking por version.
+  - Schema TOML v3 con `[[agents]]`, `type`, `model`, `description`, `sub_agents`.
+  - Almacenamiento en Firestore collection `agent_definition_file`.
+  - Endpoints CRUD + validate (sin cambio de path).
+  - Builder que compone agentes ADK reales (LlmAgent, SequentialAgent,
+    ParallelAgent, LoopAgent) según la topología declarada.
+  - UI visual: lista de agentes con selector de tipo, modelo, sub_agents y
+    preview de topología.
+  - Validación: ciclos, referencias válidas, tipos correctos.
+  - Migración automática de v2 `[[prompt_agents]]` → v3 `[[agents]]`.
 - Out of scope:
-  - Configuracion de tools por usuario.
-  - Configuracion de skill por usuario.
-  - Configuracion de `sub_agents` por usuario.
-  - Configuracion de planner por agente.
-  - Overrides de modelo por agente.
-  - Registro dinamico de tools Python desde TOML.
+  - Configuración de tools por usuario.
+  - Configuración de skills por usuario.
+  - React Flow / drag-and-drop graph editor (futuro).
+  - Custom BaseAgent code desde UI.
 
 ## Source Anchors
 
-- `agent/builder.py` — parseo, validacion, compose runtime.
+- `agent/builder.py` — parseo, validación, compose runtime.
 - `agent/app.py` — `build_orchestrator()` delegado al builder.
-- `agent/runner.py` — ejecucion (sin cambios estructurales).
+- `agent/runner.py` — ejecución (sin cambios).
 - `strava_agent_sdk/flask/routes.py` — endpoints `/agent-definition/*`.
-- `strava-agent-front/src/components/ui/agent-designer-panel.tsx` — simplificar UX a prompt-only.
+- `strava-agent-front/src/components/ui/customizable-agents-panel.tsx` — editor visual.
 
-## UX Contract (Simplified)
-
-La interfaz de creacion de agentes debe exponer solamente:
-
-1. boton `Nuevo agente`
-2. un `textarea` de prompt obligatorio
-3. acciones basicas por item: editar prompt, eliminar
-
-No debe exponer:
-
-- selector de tools
-- selector de skill/source
-- planner checkbox
-- wiki_context checkbox
-- editor de conexiones/edges
-- model override por agente
-
-Opcional UX (no bloqueante):
-
-- reordenar items por drag/drop para prioridad de delegacion
-
-## TOML Schema (v2, prompt-only)
+## TOML Schema (v3)
 
 ```toml
 [system]
 entrypoint = "orchestrator"
-model = ""
-planner_mode = "full_only"
 
-[[prompt_agents]]
-id = "agent_1"
-prompt = """
-Analiza la semana del atleta y devuelve 3 hallazgos accionables.
-"""
+[[agents]]
+id = "researcher"
+type = "llm"
+model = "openai/gpt-5-mini"
+description = "Investiga datos de entrenamiento del atleta"
+prompt = "Analiza los datos de entrenamiento recientes y extrae patrones."
+sub_agents = []
 order = 1
 
-[[prompt_agents]]
-id = "agent_2"
-prompt = """
-Explica riesgo de fatiga con base en tendencias recientes.
-"""
+[[agents]]
+id = "summarizer"
+type = "llm"
+model = "gemini/gemini-2.5-flash"
+description = "Resume hallazgos de investigación"
+prompt = "Resume los hallazgos del researcher en 3 puntos accionables."
+sub_agents = []
 order = 2
+
+[[agents]]
+id = "research_pipeline"
+type = "sequential"
+description = "Ejecuta researcher y luego summarizer en secuencia"
+sub_agents = ["researcher", "summarizer"]
+order = 3
 ```
 
 ### Campos permitidos
 
 #### `system`
 
-| Campo | Tipo | Requerido | Descripcion |
+| Campo | Tipo | Requerido | Descripción |
 |-------|------|-----------|-------------|
-| `entrypoint` | string | si | Debe ser `orchestrator` en v2 |
-| `model` | string | no | `""` = modelo de entorno |
-| `planner_mode` | string | no | `always` \| `full_only` \| `off` |
+| `entrypoint` | string | sí | Debe ser `orchestrator` en v3 |
 
-#### `prompt_agents`
+#### `agents`
 
-| Campo | Tipo | Requerido | Descripcion |
+| Campo | Tipo | Requerido | Descripción |
 |-------|------|-----------|-------------|
-| `id` | string | si | ID estable (auto-generado, no editable en UI) |
-| `prompt` | string | si | Unico campo funcional editable por usuario |
-| `order` | int | no | Prioridad de evaluacion/delegacion |
+| `id` | string | sí | snake_case, único, no reservado |
+| `type` | string | sí | `llm` \| `sequential` \| `parallel` \| `loop` |
+| `model` | string | no | LiteLLM model ID (solo para `type = "llm"`). Vacío = modelo de entorno |
+| `description` | string | no | Descripción para delegación LLM (recomendado) |
+| `prompt` | string | sí* | Instrucción del agente. *Requerido solo para `type = "llm"` |
+| `sub_agents` | string[] | sí* | IDs de agentes hijos. *Requerido y no vacío para `sequential`, `parallel`, `loop` |
+| `output_key` | string | no | Clave de estado donde el agente guarda su output (para pipelines) |
+| `order` | int | no | Prioridad visual / de evaluación |
 
-### Campos no permitidos en v2
+### Tipos de agente
 
-Se consideran invalidados para la interfaz simplificada:
+| Tipo | ADK Class | Campos requeridos | Semántica |
+|------|-----------|-------------------|-----------|
+| `llm` | `LlmAgent` | `prompt` | Agente con LLM que sigue instrucciones. Puede tener `sub_agents` opcionales (delegación). |
+| `sequential` | `SequentialAgent` | `sub_agents` (≥1) | Ejecuta hijos en orden. Output del anterior disponible vía `output_key`. |
+| `parallel` | `ParallelAgent` | `sub_agents` (≥1) | Ejecuta hijos concurrentemente. Resultados en estado compartido. |
+| `loop` | `LoopAgent` | `sub_agents` (≥1) | Itera sobre hijos hasta `max_iterations` o escalación. |
 
-- `tools`
-- `skill`
-- `instruction` dentro de `[[agents]]`
-- `sub_agents`
-- `planner` por agente
-- `wiki_context` por agente
-- `model` por agente
+### Campos NO permitidos
 
-La UI no debe generarlos y la validacion debe rechazarlos en payloads nuevos.
+- `tools` — no user-configurable tools
+- `skill` — no skill configuration
+- `planner` por agente — planner es interno
+- `wiki_context` — no per-agent wiki config
+- `instruction` (legacy) — usar `prompt`
 
 ## Data Model
 
@@ -131,14 +126,14 @@ AgentDefinitionDoc {
 
   // Denormalizados
   entrypoint: string
-  prompt_agent_count: int
-  prompt_agent_ids: string[]
+  agent_count: int
+  agent_ids: string[]
 }
 ```
 
 ## Public API / Endpoints
 
-Se mantienen sin cambio de path:
+Sin cambio de path:
 
 - `GET /agent-definition/{athlete_id}`
 - `PUT /agent-definition/{athlete_id}`
@@ -158,98 +153,104 @@ Body de `PUT`:
 }
 ```
 
-## Builder Behaviour
+## Builder Behaviour (v3)
 
-`AgentDefinitionBuilder` mantiene la responsabilidad de construir el agente raiz, pero con semantica v2:
+`AgentDefinitionBuilder.build_orchestrator()`:
 
 1. Cargar TOML del atleta (o template por defecto).
-2. Parsear y validar schema prompt-only.
-3. Construir N agentes `LlmAgent` desde `[[prompt_agents]]`:
-   - `instruction = prompt`
-   - sin tools configuradas por usuario
-4. Inyectar esos agentes como capacidad delegable del `orchestrator` interno.
-5. Devolver `orchestrator` como `system.entrypoint`.
+2. Parsear y validar schema v3.
+3. Construir grafo de dependencias desde `sub_agents`.
+4. Validar: sin ciclos, todas las refs existen, tipos correctos.
+5. Construir agentes bottom-up (hojas primero):
+   - `type = "llm"` → `LlmAgent(name=id, instruction=prompt, model=model)`
+   - `type = "sequential"` → `SequentialAgent(name=id, sub_agents=[...])`
+   - `type = "parallel"` → `ParallelAgent(name=id, sub_agents=[...])`
+   - `type = "loop"` → `LoopAgent(name=id, sub_agents=[...])`
+6. Agentes raíz (no referenciados como sub_agent por ningún otro custom) →
+   `AgentTool` del orchestrator.
+7. Agentes internos del sistema (intent_router, query_agent, etc.) → siempre
+   como `AgentTool` del orchestrator.
 
-Nota:
+### Resolución de modelo
 
-- Internamente ADK puede seguir usando `AgentTool` para wrapping entre agentes.
-- "Sin tools" significa sin tools configurables por usuario, no eliminar la mecanica interna del runtime.
+Para `type = "llm"`:
+- Si `model` está definido → usar ese modelo via `get_llm_provider(model)`.
+- Si vacío → usar modelo de entorno (AGENT_LLM_MODEL).
 
-## Frontend Integration
+Para workflow agents (sequential, parallel, loop):
+- No usan modelo directamente (delegan a sub_agents).
 
-`AgentDesignerPanel` migra de editor grafo a editor lista:
+## Frontend / Visual Editor
 
-1. Load: `GET /agent-definition/{athlete_id}`.
-2. Render: lista de prompts.
-3. Crear: agrega nuevo item con prompt vacio.
-4. Editar: solo textarea prompt.
-5. Borrar: remove item.
-6. Guardar: serializa TOML v2 y llama `PUT`.
-7. Validar: llama `POST /validate` antes de guardar.
+### Layout
 
-Estado minimo por item UI:
+Panel lateral derecho (drawer) con:
 
-- `id` (solo lectura)
-- `prompt` (editable)
+1. **Sidebar** (280px): lista de agentes con badges de tipo e icono.
+2. **Editor** (resto): propiedades del agente seleccionado:
+   - ID (solo lectura)
+   - Tipo (dropdown: llm, sequential, parallel, loop)
+   - Modelo (dropdown, solo visible para type=llm)
+   - Descripción (input text)
+   - Prompt (textarea, solo visible para type=llm)
+   - Sub-agents (checkboxes de agentes disponibles, excluye self + ancestros)
+   - Output key (input text, opcional)
 
-## Validation Rules (v2)
+### Topology Preview
 
-| Regla | Error esperado |
-|-------|----------------|
-| TOML invalido | `Invalid TOML syntax: ...` |
+Debajo de la lista de agentes en sidebar, mini-visualización de la jerarquía
+como árbol indentado con iconos de tipo:
+
+```
+🤖 researcher (llm)
+🤖 summarizer (llm)
+📋 research_pipeline (sequential)
+  ├─ researcher
+  └─ summarizer
+```
+
+## Validation Rules (v3)
+
+| Regla | Error |
+|-------|-------|
+| TOML inválido | `Invalid TOML syntax: ...` |
 | Falta `system.entrypoint` | `Field 'system.entrypoint' is required.` |
-| `system.entrypoint != orchestrator` | `Entrypoint must be 'orchestrator' in v2.` |
-| Falta lista `prompt_agents` | `At least one [[prompt_agents]] entry is required.` |
-| Prompt vacio | `Prompt agent '{id}' must define non-empty 'prompt'.` |
-| ID duplicado | `Duplicate prompt agent id '{id}'.` |
-| Exceso de agentes | `Definition exceeds max agents: {n} > 10.` |
-| Campo prohibido detectado | `Field '{field}' is not allowed in prompt-only schema.` |
-| Version mismatch | `Version conflict: expected {n}, got {m}` |
+| `entrypoint != orchestrator` | `Entrypoint must be 'orchestrator'.` |
+| Sin agentes | `At least one [[agents]] entry is required.` |
+| Exceso de agentes (>10) | `Definition exceeds max agents.` |
+| `type` inválido | `Agent '{id}': invalid type '{type}'.` |
+| `type=llm` sin prompt | `Agent '{id}': 'prompt' is required for type 'llm'.` |
+| Workflow sin sub_agents | `Agent '{id}': 'sub_agents' required for type '{type}'.` |
+| sub_agent ref inválida | `Agent '{id}': sub_agent '{ref}' does not exist.` |
+| Ciclo en sub_agents | `Circular dependency detected: {path}.` |
+| ID duplicado | `Duplicate agent id '{id}'.` |
+| ID reservado | `Agent id '{id}' is reserved.` |
+| Campo no permitido | `Field 'agents[{n}].{field}' is not allowed.` |
 
-## Behaviour
+## Migration from v2 (prompt-only)
 
-### Happy path
+Backward compatibility automática:
 
-1. Usuario crea un nuevo agente escribiendo solo un prompt.
-2. Front valida y guarda TOML v2.
-3. Chat runtime recompila orquestador con ese agente custom.
-4. Respuestas pueden delegar al nuevo agente segun su prompt.
-
-### Fallback
-
-1. Si no existe doc custom, builder usa template default prompt-only.
-2. Si custom invalido, fallback a default y warning en logs.
-
-## Migration from legacy schema
-
-Compatibilidad de transicion recomendada:
-
-1. Si se detecta schema legacy `[[agents]]` al leer:
-   - extraer solo instrucciones inline de agentes custom.
-   - ignorar `tools`, `skill`, `sub_agents`, `planner`, `wiki_context`.
-   - mapear a `[[prompt_agents]]`.
-2. En el primer `PUT` exitoso, persistir ya en formato v2.
-
-Objetivo: evitar ruptura para atletas con definiciones anteriores, pero converger a prompt-only.
+1. Si se detecta `[[prompt_agents]]` al leer:
+   - Convertir cada entry a `[[agents]]` con `type = "llm"`, `sub_agents = []`.
+   - `prompt` se mantiene, `model = ""`, `description = ""`.
+2. Si se detecta legacy `[[agents]]` con `instruction`:
+   - Mapear `instruction` → `prompt`, agregar `type = "llm"`.
+3. En el primer `PUT` exitoso, persistir en formato v3.
 
 ## Error Modes
 
 | Escenario | HTTP | Detalle |
 |-----------|------|---------|
-| TOML invalido | 400 | Parse/validation error |
-| Validacion semantica falla | 400 | Lista de errores |
+| TOML inválido | 400 | Parse/validation error |
+| Validación semántica falla | 400 | Lista de errores |
 | Version conflict | 409 | Optimistic locking |
-| Unauthorized | 401 | Token interno invalido/faltante |
+| Unauthorized | 401 | Token interno inválido/faltante |
 | Error interno | 500 | Falla no controlada |
 
 ## Dependencies
 
 - `tomllib` / `tomli`
 - Firestore (`firebase_admin`)
-- Google ADK (`LlmAgent`, `AgentTool`, `PlanReActPlanner`)
-
-## Open Questions
-
-1. `order` sera editable (drag/drop) o append-only?
-2. La UI mostrara un titulo derivado de prompt (primeras N palabras) o solo ID?
-3. En migracion legacy, se aceptan skills para convertir a prompts via carga de `SKILL.md`, o se ignoran por completo?
+- Google ADK 1.26+ (`LlmAgent`, `SequentialAgent`, `ParallelAgent`,
+  `LoopAgent`, `AgentTool`)

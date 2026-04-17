@@ -7,7 +7,7 @@ import pathlib
 import re
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,7 +24,7 @@ except Exception:  # noqa: BLE001
     firebase_admin = None
     firebase_firestore = None
 
-from google.adk.agents import LlmAgent
+from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent
 from google.adk.skills import load_skill_from_dir
 from google.adk.tools.agent_tool import AgentTool
 
@@ -43,11 +43,17 @@ MAX_DEFINITION_AGENTS = 10
 DEFAULT_COLLECTION = "agent_definition_file"
 SKILLS_DIR = pathlib.Path(__file__).parent / "skills"
 VALID_PLANNER_MODES = {"always", "full_only", "off"}
+VALID_AGENT_TYPES = {"llm", "sequential", "parallel", "loop"}
 AGENT_ID_RE = re.compile(r"^[a-z0-9_]+$")
 
-SYSTEM_ALLOWED_FIELDS = {"entrypoint", "model", "planner_mode"}
-PROMPT_AGENT_ALLOWED_FIELDS = {"id", "prompt", "order"}
-ROOT_ALLOWED_FIELDS = {"system", "prompt_agents"}
+SYSTEM_ALLOWED_FIELDS = {"entrypoint"}
+AGENT_ALLOWED_FIELDS = {"id", "type", "model", "prompt", "description", "sub_agents", "output_key", "order"}
+ROOT_ALLOWED_FIELDS = {"system", "agents"}
+
+# Legacy v2 support
+LEGACY_SYSTEM_ALLOWED_FIELDS = {"entrypoint", "model", "planner_mode"}
+LEGACY_PROMPT_AGENT_ALLOWED_FIELDS = {"id", "prompt", "order"}
+LEGACY_ROOT_ALLOWED_FIELDS = {"system", "prompt_agents"}
 
 RESERVED_AGENT_IDS = {
     "intent_router",
@@ -92,18 +98,18 @@ def _build_runtime_planner_directive(normalized_planner_mode: str) -> str:
 def _build_default_orchestrator_instruction(
     planner_mode: str,
     *,
-    custom_prompt_agent_ids: list[str] | None = None,
+    custom_agent_ids: list[str] | None = None,
 ) -> str:
     planner_directive = _build_runtime_planner_directive(planner_mode)
-    custom_prompt_agent_ids = custom_prompt_agent_ids or []
+    custom_agent_ids = custom_agent_ids or []
 
     custom_lines = ""
-    if custom_prompt_agent_ids:
-        items = "\n".join(f"- {agent_id}" for agent_id in custom_prompt_agent_ids)
+    if custom_agent_ids:
+        items = "\n".join(f"- {agent_id}" for agent_id in custom_agent_ids)
         custom_lines = (
-            "\nCustom prompt agents (user-defined):\n"
+            "\nCustom agents (user-defined):\n"
             f"{items}\n"
-            "When a custom prompt agent is relevant, delegate to it before finalizing.\n"
+            "When a custom agent is relevant, delegate to it before finalizing.\n"
         )
 
     return (
@@ -125,17 +131,18 @@ def _build_default_orchestrator_instruction(
 
 
 def _build_default_toml_template() -> str:
-    return _stringify_prompt_only_definition(
+    return _stringify_v3_definition(
         {
-            "system": {
-                "entrypoint": "orchestrator",
-                "model": "",
-                "planner_mode": "full_only",
-            },
-            "prompt_agents": [
+            "system": {"entrypoint": "orchestrator"},
+            "agents": [
                 {
                     "id": "agent_1",
+                    "type": "llm",
+                    "model": "",
+                    "description": "",
                     "prompt": DEFAULT_PROMPT_TEXT,
+                    "sub_agents": [],
+                    "output_key": "",
                     "order": 1,
                 }
             ],
@@ -155,7 +162,7 @@ def _parse_toml(toml_content: str) -> dict[str, Any]:
     return payload
 
 
-def _normalize_prompt_agent_id(value: str, *, index: int) -> str:
+def _normalize_agent_id(value: str, *, index: int) -> str:
     normalized = value.strip().lower()
     normalized = re.sub(r"\s+", "_", normalized)
     normalized = re.sub(r"[^a-z0-9_]", "", normalized)
@@ -164,92 +171,189 @@ def _normalize_prompt_agent_id(value: str, *, index: int) -> str:
     return normalized
 
 
-def _extract_prompt_agents_from_v2(raw_prompt_agents: Any) -> list[dict[str, Any]]:
-    if not isinstance(raw_prompt_agents, list):
-        return []
+# ---------------------------------------------------------------------------
+# v3 normalization
+# ---------------------------------------------------------------------------
 
-    prompt_agents: list[dict[str, Any]] = []
-    for index, raw_agent in enumerate(raw_prompt_agents, start=1):
-        if not isinstance(raw_agent, dict):
-            continue
-
-        raw_id = str(raw_agent.get("id") or "")
-        prompt_id = _normalize_prompt_agent_id(raw_id, index=index)
-        prompt = str(raw_agent.get("prompt") or "")
-
-        raw_order = raw_agent.get("order")
-        if isinstance(raw_order, int):
-            order = raw_order
-        else:
-            order = index
-
-        prompt_agents.append(
-            {
-                "id": prompt_id,
-                "prompt": prompt,
-                "order": order,
-            }
-        )
-
-    return prompt_agents
-
-
-def _extract_prompt_agents_from_legacy(raw_agents: Any) -> list[dict[str, Any]]:
+def _extract_agents_v3(raw_agents: Any) -> list[dict[str, Any]]:
+    """Extract agent entries from v3 [[agents]] format."""
     if not isinstance(raw_agents, list):
         return []
 
-    prompt_agents: list[dict[str, Any]] = []
+    agents: list[dict[str, Any]] = []
     for index, raw_agent in enumerate(raw_agents, start=1):
         if not isinstance(raw_agent, dict):
             continue
 
-        raw_id = str(raw_agent.get("id") or "").strip()
-        normalized_id = _normalize_prompt_agent_id(raw_id, index=index)
-        if normalized_id in RESERVED_AGENT_IDS:
-            continue
+        raw_id = str(raw_agent.get("id") or "")
+        agent_id = _normalize_agent_id(raw_id, index=index)
+        agent_type = str(raw_agent.get("type") or "llm").strip().lower()
+        if agent_type not in VALID_AGENT_TYPES:
+            agent_type = "llm"
 
-        instruction = raw_agent.get("instruction")
-        if not isinstance(instruction, str) or not instruction.strip():
-            continue
+        model = str(raw_agent.get("model") or "")
+        description = str(raw_agent.get("description") or "")
+        prompt = str(raw_agent.get("prompt") or "")
+        output_key = str(raw_agent.get("output_key") or "")
 
-        prompt_agents.append(
-            {
-                "id": normalized_id,
-                "prompt": instruction,
-                "order": len(prompt_agents) + 1,
-            }
-        )
+        raw_sub_agents = raw_agent.get("sub_agents")
+        sub_agents: list[str] = []
+        if isinstance(raw_sub_agents, list):
+            for ref in raw_sub_agents:
+                ref_str = str(ref).strip()
+                if ref_str:
+                    sub_agents.append(ref_str)
 
-    return prompt_agents
+        raw_order = raw_agent.get("order")
+        order = raw_order if isinstance(raw_order, int) else index
+
+        agents.append({
+            "id": agent_id,
+            "type": agent_type,
+            "model": model,
+            "description": description,
+            "prompt": prompt,
+            "sub_agents": sub_agents,
+            "output_key": output_key,
+            "order": order,
+        })
+
+    return agents
 
 
-def _to_prompt_only_definition(parsed: dict[str, Any]) -> dict[str, Any]:
+def _migrate_v2_to_v3(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Migrate v2 prompt-only format to v3."""
     root = parsed if isinstance(parsed, dict) else {}
     raw_system = root.get("system") if isinstance(root.get("system"), dict) else {}
 
-    system = {
-        "entrypoint": str(raw_system.get("entrypoint") or "orchestrator").strip() or "orchestrator",
-        "model": str(raw_system.get("model") or ""),
-        "planner_mode": _normalize_planner_mode(
-            str(raw_system.get("planner_mode") or "full_only"),
-            fallback="full_only",
-        ),
-    }
+    system = {"entrypoint": str(raw_system.get("entrypoint") or "orchestrator").strip() or "orchestrator"}
 
-    prompt_agents = _extract_prompt_agents_from_v2(root.get("prompt_agents"))
-    if not prompt_agents:
-        prompt_agents = _extract_prompt_agents_from_legacy(root.get("agents"))
+    agents: list[dict[str, Any]] = []
 
-    return {
-        "system": system,
-        "prompt_agents": prompt_agents,
-    }
+    # Try v2 prompt_agents
+    raw_prompt_agents = root.get("prompt_agents")
+    if isinstance(raw_prompt_agents, list):
+        for index, raw_agent in enumerate(raw_prompt_agents, start=1):
+            if not isinstance(raw_agent, dict):
+                continue
+            raw_id = str(raw_agent.get("id") or "")
+            agent_id = _normalize_agent_id(raw_id, index=index)
+            prompt = str(raw_agent.get("prompt") or "")
+            raw_order = raw_agent.get("order")
+            order = raw_order if isinstance(raw_order, int) else index
 
+            agents.append({
+                "id": agent_id,
+                "type": "llm",
+                "model": str(raw_agent.get("model") or ""),
+                "description": "",
+                "prompt": prompt,
+                "sub_agents": [],
+                "output_key": "",
+                "order": order,
+            })
+
+    # Try legacy [[agents]] with instruction
+    if not agents:
+        raw_legacy = root.get("agents")
+        if isinstance(raw_legacy, list):
+            for index, raw_agent in enumerate(raw_legacy, start=1):
+                if not isinstance(raw_agent, dict):
+                    continue
+                raw_id = str(raw_agent.get("id") or "").strip()
+                normalized_id = _normalize_agent_id(raw_id, index=index)
+                if normalized_id in RESERVED_AGENT_IDS:
+                    continue
+                instruction = raw_agent.get("instruction")
+                if not isinstance(instruction, str) or not instruction.strip():
+                    continue
+                agents.append({
+                    "id": normalized_id,
+                    "type": "llm",
+                    "model": "",
+                    "description": "",
+                    "prompt": instruction,
+                    "sub_agents": [],
+                    "output_key": "",
+                    "order": len(agents) + 1,
+                })
+
+    return {"system": system, "agents": agents}
+
+
+def _to_v3_definition(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Normalize any TOML format (v1 legacy, v2 prompt-only, v3) to v3."""
+    root = parsed if isinstance(parsed, dict) else {}
+
+    # Detect format
+    has_v3_agents = isinstance(root.get("agents"), list) and any(
+        isinstance(a, dict) and "type" in a for a in root["agents"]
+    )
+    has_v2_prompt_agents = isinstance(root.get("prompt_agents"), list)
+    has_legacy_agents = isinstance(root.get("agents"), list) and any(
+        isinstance(a, dict) and "instruction" in a for a in root.get("agents", [])
+    )
+
+    if has_v3_agents:
+        raw_system = root.get("system") if isinstance(root.get("system"), dict) else {}
+        system = {"entrypoint": str(raw_system.get("entrypoint") or "orchestrator").strip() or "orchestrator"}
+        agents = _extract_agents_v3(root["agents"])
+        return {"system": system, "agents": agents}
+
+    if has_v2_prompt_agents or has_legacy_agents:
+        return _migrate_v2_to_v3(parsed)
+
+    # Fallback: try to extract whatever we can
+    return _migrate_v2_to_v3(parsed)
+
+
+# ---------------------------------------------------------------------------
+# Cycle detection
+# ---------------------------------------------------------------------------
+
+def _detect_cycles(agents: list[dict[str, Any]]) -> list[str]:
+    """Detect circular dependencies in sub_agents graph. Returns error strings."""
+    adjacency: dict[str, list[str]] = {}
+    for agent in agents:
+        agent_id = str(agent.get("id") or "")
+        sub_agents = agent.get("sub_agents") or []
+        adjacency[agent_id] = [str(s) for s in sub_agents]
+
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+    errors: list[str] = []
+
+    def dfs(node: str, path: list[str]) -> None:
+        if node in in_stack:
+            cycle_start = path.index(node)
+            cycle_path = " -> ".join(path[cycle_start:] + [node])
+            errors.append(f"Circular dependency detected: {cycle_path}.")
+            return
+        if node in visited:
+            return
+        visited.add(node)
+        in_stack.add(node)
+        path.append(node)
+        for neighbor in adjacency.get(node, []):
+            dfs(neighbor, path)
+        path.pop()
+        in_stack.discard(node)
+
+    for agent_id in adjacency:
+        if agent_id not in visited:
+            dfs(agent_id, [])
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
 
 def _validate_definition(parsed: dict[str, Any], *, strict: bool) -> list[str]:
     errors: list[str] = []
     root = parsed if isinstance(parsed, dict) else {}
-    normalized = _to_prompt_only_definition(root)
+    normalized = _to_v3_definition(root)
 
     raw_system = root.get("system")
     if not isinstance(raw_system, dict):
@@ -261,124 +365,179 @@ def _validate_definition(parsed: dict[str, Any], *, strict: bool) -> list[str]:
         errors.append("Field 'system.entrypoint' is required.")
 
     if normalized["system"]["entrypoint"] != "orchestrator":
-        errors.append("Entrypoint must be 'orchestrator' in v2.")
+        errors.append("Entrypoint must be 'orchestrator'.")
 
-    raw_system_planner_mode = raw_system.get("planner_mode")
-    if raw_system_planner_mode is not None:
-        if not isinstance(raw_system_planner_mode, str):
-            errors.append("Field 'system.planner_mode' must be a string.")
-        elif _normalize_planner_mode(raw_system_planner_mode, "") != raw_system_planner_mode.strip().lower():
-            errors.append("Field 'system.planner_mode' must be one of: always, full_only, off.")
+    agents = normalized["agents"]
+    if not agents:
+        errors.append("At least one [[agents]] entry is required.")
 
-    prompt_agents = normalized["prompt_agents"]
-    if not prompt_agents:
-        errors.append("At least one [[prompt_agents]] entry is required.")
+    if len(agents) > MAX_DEFINITION_AGENTS:
+        errors.append(f"Definition exceeds max agents: {len(agents)} > {MAX_DEFINITION_AGENTS}.")
 
-    if len(prompt_agents) > MAX_DEFINITION_AGENTS:
-        errors.append(f"Definition exceeds max agents: {len(prompt_agents)} > {MAX_DEFINITION_AGENTS}.")
-
+    all_ids: set[str] = set()
     seen_ids: set[str] = set()
-    for prompt_agent in prompt_agents:
-        prompt_id = str(prompt_agent.get("id") or "").strip()
-        prompt = str(prompt_agent.get("prompt") or "")
 
-        if not prompt_id:
-            errors.append("Prompt agent entry missing required 'id'.")
+    # Collect all agent IDs first for sub_agent reference validation
+    for agent in agents:
+        agent_id = str(agent.get("id") or "").strip()
+        if agent_id:
+            all_ids.add(agent_id)
+
+    for agent in agents:
+        agent_id = str(agent.get("id") or "").strip()
+        agent_type = str(agent.get("type") or "llm")
+        prompt = str(agent.get("prompt") or "")
+        sub_agents = agent.get("sub_agents") or []
+
+        if not agent_id:
+            errors.append("Agent entry missing required 'id'.")
             continue
 
-        if not AGENT_ID_RE.match(prompt_id):
-            errors.append(f"Prompt agent '{prompt_id}' must be snake_case.")
+        if not AGENT_ID_RE.match(agent_id):
+            errors.append(f"Agent '{agent_id}' must be snake_case.")
 
-        if prompt_id in RESERVED_AGENT_IDS:
-            errors.append(f"Prompt agent id '{prompt_id}' is reserved.")
+        if agent_id in RESERVED_AGENT_IDS:
+            errors.append(f"Agent id '{agent_id}' is reserved.")
 
-        if prompt_id in seen_ids:
-            errors.append(f"Duplicate prompt agent id '{prompt_id}'.")
-        seen_ids.add(prompt_id)
+        if agent_id in seen_ids:
+            errors.append(f"Duplicate agent id '{agent_id}'.")
+        seen_ids.add(agent_id)
 
-        if not prompt.strip():
-            errors.append(f"Prompt agent '{prompt_id}' must define non-empty 'prompt'.")
+        if agent_type not in VALID_AGENT_TYPES:
+            errors.append(f"Agent '{agent_id}': invalid type '{agent_type}'. Must be one of: {', '.join(sorted(VALID_AGENT_TYPES))}.")
+
+        if agent_type == "llm" and not prompt.strip():
+            errors.append(f"Agent '{agent_id}': 'prompt' is required for type 'llm'.")
+
+        if agent_type in ("sequential", "parallel", "loop"):
+            if not sub_agents:
+                errors.append(f"Agent '{agent_id}': 'sub_agents' required and non-empty for type '{agent_type}'.")
+
+        # Validate sub_agent references
+        for ref in sub_agents:
+            ref_str = str(ref).strip()
+            if ref_str and ref_str not in all_ids:
+                errors.append(f"Agent '{agent_id}': sub_agent '{ref_str}' does not exist.")
+
+    # Cycle detection
+    if agents and not errors:
+        cycle_errors = _detect_cycles(agents)
+        errors.extend(cycle_errors)
 
     if strict:
-        for key in root:
-            if key not in ROOT_ALLOWED_FIELDS:
-                errors.append(f"Field '{key}' is not allowed in prompt-only schema.")
+        # Detect schema version from raw TOML
+        is_v2 = "prompt_agents" in root and "agents" not in root
 
-        if isinstance(raw_system, dict):
-            for key in raw_system:
-                if key not in SYSTEM_ALLOWED_FIELDS:
-                    errors.append(f"Field 'system.{key}' is not allowed in prompt-only schema.")
+        if is_v2:
+            # v2 strict validation (backward compat for existing stored docs)
+            for key in root:
+                if key not in LEGACY_ROOT_ALLOWED_FIELDS:
+                    errors.append(f"Field '{key}' is not allowed in prompt-only schema.")
 
-        raw_prompt_agents = root.get("prompt_agents")
-        if isinstance(raw_prompt_agents, list):
-            for index, raw_prompt_agent in enumerate(raw_prompt_agents, start=1):
-                if not isinstance(raw_prompt_agent, dict):
-                    errors.append(f"Entry [[prompt_agents]] #{index} must be a table.")
-                    continue
+            if isinstance(raw_system, dict):
+                for key in raw_system:
+                    if key not in LEGACY_SYSTEM_ALLOWED_FIELDS:
+                        errors.append(f"Field 'system.{key}' is not allowed in prompt-only schema.")
 
-                for key in raw_prompt_agent:
-                    if key not in PROMPT_AGENT_ALLOWED_FIELDS:
-                        errors.append(
-                            f"Field 'prompt_agents[{index}].{key}' is not allowed in prompt-only schema."
-                        )
+            raw_prompt_agents = root.get("prompt_agents")
+            if isinstance(raw_prompt_agents, list):
+                for index, raw_agent in enumerate(raw_prompt_agents, start=1):
+                    if not isinstance(raw_agent, dict):
+                        errors.append(f"Entry [[prompt_agents]] #{index} must be a table.")
+                        continue
+                    for key in raw_agent:
+                        if key not in LEGACY_PROMPT_AGENT_ALLOWED_FIELDS:
+                            errors.append(
+                                f"Field 'prompt_agents[{index}].{key}' is not allowed in prompt-only schema."
+                            )
+                    raw_order = raw_agent.get("order")
+                    if raw_order is not None and not isinstance(raw_order, int):
+                        errors.append(f"Field 'prompt_agents[{index}].order' must be an integer.")
+        else:
+            # v3 strict validation
+            for key in root:
+                if key not in ROOT_ALLOWED_FIELDS:
+                    errors.append(f"Field '{key}' is not allowed.")
 
-                raw_order = raw_prompt_agent.get("order")
-                if raw_order is not None and not isinstance(raw_order, int):
-                    errors.append(f"Field 'prompt_agents[{index}].order' must be an integer.")
+            if isinstance(raw_system, dict):
+                for key in raw_system:
+                    if key not in SYSTEM_ALLOWED_FIELDS:
+                        errors.append(f"Field 'system.{key}' is not allowed.")
+
+            raw_agents = root.get("agents")
+            if isinstance(raw_agents, list):
+                for index, raw_agent in enumerate(raw_agents, start=1):
+                    if not isinstance(raw_agent, dict):
+                        errors.append(f"Entry [[agents]] #{index} must be a table.")
+                        continue
+                    for key in raw_agent:
+                        if key not in AGENT_ALLOWED_FIELDS:
+                            errors.append(f"Field 'agents[{index}].{key}' is not allowed.")
+                    raw_order = raw_agent.get("order")
+                    if raw_order is not None and not isinstance(raw_order, int):
+                        errors.append(f"Field 'agents[{index}].order' must be an integer.")
 
     return errors
 
 
 def _extract_denormalized_fields(parsed: dict[str, Any]) -> dict[str, Any]:
-    system = parsed.get("system") if isinstance(parsed.get("system"), dict) else {}
-    prompt_agents = parsed.get("prompt_agents") if isinstance(parsed.get("prompt_agents"), list) else []
+    normalized = _to_v3_definition(parsed)
+    system = normalized.get("system", {})
+    agents = normalized.get("agents", [])
 
-    prompt_agent_ids: list[str] = []
-    for raw_prompt_agent in prompt_agents:
-        if not isinstance(raw_prompt_agent, dict):
-            continue
-        prompt_id = raw_prompt_agent.get("id")
-        if isinstance(prompt_id, str) and prompt_id.strip():
-            prompt_agent_ids.append(prompt_id.strip())
+    agent_ids: list[str] = []
+    for agent in agents:
+        agent_id = str(agent.get("id") or "").strip()
+        if agent_id:
+            agent_ids.append(agent_id)
 
     return {
         "entrypoint": str(system.get("entrypoint") or "").strip(),
-        "prompt_agent_count": len(prompt_agent_ids),
-        "prompt_agent_ids": prompt_agent_ids,
-        "agent_count": len(prompt_agent_ids),
-        "agent_ids": prompt_agent_ids,
+        "agent_count": len(agent_ids),
+        "agent_ids": agent_ids,
+        # Legacy compat fields
+        "prompt_agent_count": len(agent_ids),
+        "prompt_agent_ids": agent_ids,
     }
 
 
-def _stringify_prompt_only_definition(parsed: dict[str, Any]) -> str:
-    normalized = _to_prompt_only_definition(parsed)
+def _stringify_v3_definition(parsed: dict[str, Any]) -> str:
+    """Serialize a v3 definition to TOML string."""
+    normalized = _to_v3_definition(parsed)
     system = normalized["system"]
 
-    prompt_agents = sorted(
-        normalized["prompt_agents"],
+    agents = sorted(
+        normalized["agents"],
         key=lambda item: (int(item.get("order") or 0), str(item.get("id") or "")),
     )
 
     lines = [
         "[system]",
         f"entrypoint = {json.dumps(str(system.get('entrypoint') or 'orchestrator'), ensure_ascii=False)}",
-        f"model = {json.dumps(str(system.get('model') or ''), ensure_ascii=False)}",
-        f"planner_mode = {json.dumps(_normalize_planner_mode(str(system.get('planner_mode') or 'full_only')), ensure_ascii=False)}",
     ]
 
-    for prompt_agent in prompt_agents:
-        prompt_id = str(prompt_agent.get("id") or "")
-        prompt = str(prompt_agent.get("prompt") or "")
-        order = int(prompt_agent.get("order") or 0)
-        lines.extend(
-            [
-                "",
-                "[[prompt_agents]]",
-                f"id = {json.dumps(prompt_id, ensure_ascii=False)}",
-                f"prompt = {json.dumps(prompt, ensure_ascii=False)}",
-                f"order = {order}",
-            ]
-        )
+    for agent in agents:
+        agent_id = str(agent.get("id") or "")
+        agent_type = str(agent.get("type") or "llm")
+        model = str(agent.get("model") or "")
+        description = str(agent.get("description") or "")
+        prompt = str(agent.get("prompt") or "")
+        sub_agents = agent.get("sub_agents") or []
+        output_key = str(agent.get("output_key") or "")
+        order = int(agent.get("order") or 0)
+
+        lines.extend([
+            "",
+            "[[agents]]",
+            f"id = {json.dumps(agent_id, ensure_ascii=False)}",
+            f"type = {json.dumps(agent_type, ensure_ascii=False)}",
+            f"model = {json.dumps(model, ensure_ascii=False)}",
+            f"description = {json.dumps(description, ensure_ascii=False)}",
+            f"prompt = {json.dumps(prompt, ensure_ascii=False)}",
+            f"sub_agents = [{', '.join(json.dumps(s, ensure_ascii=False) for s in sub_agents)}]",
+            f"output_key = {json.dumps(output_key, ensure_ascii=False)}",
+            f"order = {order}",
+        ])
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -427,14 +586,19 @@ class AgentDefinitionEntry:
 
 
 @dataclass(slots=True)
-class PromptAgentConfig:
-    prompt_id: str
+class AgentConfig:
+    agent_id: str
+    agent_type: str
+    model: str
+    description: str
     prompt: str
-    order: int
+    sub_agents: list[str] = field(default_factory=list)
+    output_key: str = ""
+    order: int = 0
 
 
 class AgentDefinitionStore:
-    """Persistence for prompt-only agent TOML definitions."""
+    """Persistence for agent TOML definitions."""
 
     def __init__(self) -> None:
         self._collection = os.environ.get("FIRESTORE_AGENT_DEFINITION_COLLECTION", DEFAULT_COLLECTION)
@@ -557,10 +721,10 @@ class AgentDefinitionStore:
                     "updated_at": now_iso,
                     "updated_by": updated_by,
                     "entrypoint": denormalized["entrypoint"],
-                    "prompt_agent_count": denormalized["prompt_agent_count"],
-                    "prompt_agent_ids": denormalized["prompt_agent_ids"],
                     "agent_count": denormalized["agent_count"],
                     "agent_ids": denormalized["agent_ids"],
+                    "prompt_agent_count": denormalized["prompt_agent_count"],
+                    "prompt_agent_ids": denormalized["prompt_agent_ids"],
                 }
                 doc_ref.set(payload)
 
@@ -595,10 +759,10 @@ class AgentDefinitionStore:
             "updated_at": now_iso,
             "updated_by": updated_by,
             "entrypoint": denormalized["entrypoint"],
-            "prompt_agent_count": denormalized["prompt_agent_count"],
-            "prompt_agent_ids": denormalized["prompt_agent_ids"],
             "agent_count": denormalized["agent_count"],
             "agent_ids": denormalized["agent_ids"],
+            "prompt_agent_count": denormalized["prompt_agent_count"],
+            "prompt_agent_ids": denormalized["prompt_agent_ids"],
         }
         self._save_local(local)
 
@@ -630,21 +794,39 @@ class AgentDefinitionStore:
         return True
 
 
-def _prompt_agent_configs(parsed: dict[str, Any]) -> list[PromptAgentConfig]:
-    normalized = _to_prompt_only_definition(parsed)
-    prompt_agents = sorted(
-        normalized["prompt_agents"],
+def _agent_configs(parsed: dict[str, Any]) -> list[AgentConfig]:
+    normalized = _to_v3_definition(parsed)
+    agents = sorted(
+        normalized["agents"],
         key=lambda item: (int(item.get("order") or 0), str(item.get("id") or "")),
     )
 
-    configs: list[PromptAgentConfig] = []
-    for prompt_agent in prompt_agents:
-        prompt_id = str(prompt_agent.get("id") or "").strip()
-        prompt = str(prompt_agent.get("prompt") or "")
-        order = int(prompt_agent.get("order") or 0)
-        if not prompt_id or not prompt.strip():
+    configs: list[AgentConfig] = []
+    for agent in agents:
+        agent_id = str(agent.get("id") or "").strip()
+        agent_type = str(agent.get("type") or "llm")
+        model = str(agent.get("model") or "")
+        description = str(agent.get("description") or "")
+        prompt = str(agent.get("prompt") or "")
+        sub_agents = agent.get("sub_agents") or []
+        output_key = str(agent.get("output_key") or "")
+        order = int(agent.get("order") or 0)
+
+        if not agent_id:
             continue
-        configs.append(PromptAgentConfig(prompt_id=prompt_id, prompt=prompt, order=order))
+        if agent_type == "llm" and not prompt.strip():
+            continue
+
+        configs.append(AgentConfig(
+            agent_id=agent_id,
+            agent_type=agent_type,
+            model=model,
+            description=description,
+            prompt=prompt,
+            sub_agents=[str(s) for s in sub_agents],
+            output_key=output_key,
+            order=order,
+        ))
 
     return configs
 
@@ -678,11 +860,11 @@ class AgentDefinitionBuilder:
         toml_content = entry.toml_content
         try:
             parsed = _parse_toml(entry.toml_content)
-            normalized = _to_prompt_only_definition(parsed)
+            normalized = _to_v3_definition(parsed)
             errors = _validate_definition(normalized, strict=False)
             if errors:
                 raise AgentDefinitionValidationError("; ".join(errors))
-            toml_content = _stringify_prompt_only_definition(normalized)
+            toml_content = _stringify_v3_definition(normalized)
         except Exception:  # noqa: BLE001
             logger.warning(
                 "Invalid definition for athlete %s when reading. Returning default template.",
@@ -718,8 +900,8 @@ class AgentDefinitionBuilder:
         if errors:
             raise AgentDefinitionValidationError("; ".join(errors))
 
-        normalized = _to_prompt_only_definition(parsed)
-        normalized_toml = _stringify_prompt_only_definition(normalized)
+        normalized = _to_v3_definition(parsed)
+        normalized_toml = _stringify_v3_definition(normalized)
 
         entry = self._store.save(
             normalized_athlete_id,
@@ -761,18 +943,18 @@ class AgentDefinitionBuilder:
 
         try:
             parsed = _parse_toml(entry.toml_content)
-            normalized = _to_prompt_only_definition(parsed)
+            normalized = _to_v3_definition(parsed)
             errors = _validate_definition(normalized, strict=False)
             if errors:
                 return None
 
             target_id = (agent_id or WIKI_RESEARCH_CHAT_AGENT_ID).strip() or WIKI_RESEARCH_CHAT_AGENT_ID
-            for prompt_agent in normalized.get("prompt_agents", []):
-                if not isinstance(prompt_agent, dict):
+            for agent in normalized.get("agents", []):
+                if not isinstance(agent, dict):
                     continue
-                if str(prompt_agent.get("id") or "").strip() != target_id:
+                if str(agent.get("id") or "").strip() != target_id:
                     continue
-                candidate = str(prompt_agent.get("prompt") or "").strip()
+                candidate = str(agent.get("prompt") or "").strip()
                 if candidate:
                     return candidate
             return None
@@ -793,33 +975,27 @@ class AgentDefinitionBuilder:
 
         try:
             parsed = _parse_toml(entry.toml_content)
-            normalized = _to_prompt_only_definition(parsed)
+            normalized = _to_v3_definition(parsed)
             errors = _validate_definition(normalized, strict=False)
             if errors:
                 raise AgentDefinitionValidationError("; ".join(errors))
         except Exception:
             if entry.is_default:
-                normalized = _to_prompt_only_definition(_parse_toml(DEFAULT_TOML_TEMPLATE))
+                normalized = _to_v3_definition(_parse_toml(DEFAULT_TOML_TEMPLATE))
             else:
                 logger.warning(
                     "Invalid custom agent definition for athlete %s. Falling back to default template.",
                     entry.athlete_id,
                 )
-                normalized = _to_prompt_only_definition(_parse_toml(DEFAULT_TOML_TEMPLATE))
+                normalized = _to_v3_definition(_parse_toml(DEFAULT_TOML_TEMPLATE))
 
-        system = normalized.get("system") if isinstance(normalized.get("system"), dict) else {}
-        system_model = str(system.get("model") or "").strip() or None
-        system_planner_mode = _normalize_planner_mode(
-            str(system.get("planner_mode") or "full_only"),
-            fallback="full_only",
-        )
-        runtime_planner_mode = _normalize_planner_mode(
-            planner_mode,
-            fallback=system_planner_mode,
-        )
+        runtime_planner_mode = _normalize_planner_mode(planner_mode, fallback="full_only")
 
-        active_model = model_name.strip() if isinstance(model_name, str) and model_name.strip() else system_model
-        selected_model = get_llm_provider(model_name=active_model)
+        # Default model for system agents
+        fallback_model_name = model_name.strip() if isinstance(model_name, str) and model_name.strip() else None
+        default_model = get_llm_provider(model_name=fallback_model_name)
+
+        # ── Build system (internal) agents ──────────────────────────────
 
         intent_router_instruction = _load_skill_instruction(
             "intent-router",
@@ -844,7 +1020,7 @@ class AgentDefinitionBuilder:
 
         intent_router = LlmAgent(
             name="intent_router",
-            model=selected_model,
+            model=default_model,
             instruction=intent_router_instruction,
             tools=[],
         )
@@ -853,7 +1029,7 @@ class AgentDefinitionBuilder:
         try:
             plan_react_planner = LlmAgent(
                 name="plan_react_planner",
-                model=selected_model,
+                model=default_model,
                 instruction=plan_react_instruction,
                 tools=[],
                 **planner_kwargs,
@@ -861,42 +1037,123 @@ class AgentDefinitionBuilder:
         except TypeError:
             plan_react_planner = LlmAgent(
                 name="plan_react_planner",
-                model=selected_model,
+                model=default_model,
                 instruction=plan_react_instruction,
                 tools=[],
             )
 
         strava_ingestion_agent = LlmAgent(
             name="strava_ingestion_agent",
-            model=selected_model,
+            model=default_model,
             instruction=ingestion_instruction,
             tools=[TOOL_CATALOG["run_ingestion_pipeline"]],
         )
 
         query_agent = LlmAgent(
             name="query_agent",
-            model=selected_model,
+            model=default_model,
             instruction=query_instruction,
             tools=[TOOL_CATALOG["run_query_pipeline"]],
         )
 
         answer_agent = LlmAgent(
             name="answer_agent",
-            model=selected_model,
+            model=default_model,
             instruction=answer_instruction,
             tools=[],
         )
 
-        prompt_configs = _prompt_agent_configs(normalized)
-        prompt_tools: list[AgentTool] = []
-        for config in prompt_configs:
-            prompt_agent = LlmAgent(
-                name=config.prompt_id,
-                model=selected_model,
-                instruction=config.prompt,
-                tools=[],
-            )
-            prompt_tools.append(AgentTool(agent=prompt_agent))
+        # ── Build custom agents from definition ─────────────────────────
+
+        configs = _agent_configs(normalized)
+
+        # Build agents bottom-up: first create all LlmAgents (leaves), then
+        # compose workflow agents referencing them.
+        built_agents: dict[str, LlmAgent | SequentialAgent | ParallelAgent | LoopAgent] = {}
+
+        # Topological sort: build agents whose sub_agents are all built first
+        config_map: dict[str, AgentConfig] = {c.agent_id: c for c in configs}
+        build_order: list[str] = []
+        visited: set[str] = set()
+
+        def topo_visit(agent_id: str) -> None:
+            if agent_id in visited or agent_id not in config_map:
+                return
+            visited.add(agent_id)
+            for sub_id in config_map[agent_id].sub_agents:
+                topo_visit(sub_id)
+            build_order.append(agent_id)
+
+        for cfg in configs:
+            topo_visit(cfg.agent_id)
+
+        for agent_id in build_order:
+            cfg = config_map[agent_id]
+
+            # Resolve model for LlmAgents
+            if cfg.agent_type == "llm":
+                agent_model_name = cfg.model.strip() if cfg.model.strip() else fallback_model_name
+                agent_model = get_llm_provider(model_name=agent_model_name)
+
+                # Collect sub_agents as AgentTool if this LlmAgent has children
+                agent_tools: list[Any] = []
+                agent_sub_agents_list: list[Any] = []
+                for sub_id in cfg.sub_agents:
+                    if sub_id in built_agents:
+                        agent_sub_agents_list.append(built_agents[sub_id])
+
+                kwargs: dict[str, Any] = {
+                    "name": cfg.agent_id,
+                    "model": agent_model,
+                    "instruction": cfg.prompt,
+                    "description": cfg.description or cfg.prompt[:100],
+                    "tools": agent_tools,
+                }
+                if cfg.output_key:
+                    kwargs["output_key"] = cfg.output_key
+                if agent_sub_agents_list:
+                    kwargs["sub_agents"] = agent_sub_agents_list
+
+                built_agents[cfg.agent_id] = LlmAgent(**kwargs)
+
+            elif cfg.agent_type == "sequential":
+                sub_agent_instances = [built_agents[s] for s in cfg.sub_agents if s in built_agents]
+                built_agents[cfg.agent_id] = SequentialAgent(
+                    name=cfg.agent_id,
+                    sub_agents=sub_agent_instances,
+                    description=cfg.description or f"Sequential pipeline: {', '.join(cfg.sub_agents)}",
+                )
+
+            elif cfg.agent_type == "parallel":
+                sub_agent_instances = [built_agents[s] for s in cfg.sub_agents if s in built_agents]
+                built_agents[cfg.agent_id] = ParallelAgent(
+                    name=cfg.agent_id,
+                    sub_agents=sub_agent_instances,
+                    description=cfg.description or f"Parallel execution: {', '.join(cfg.sub_agents)}",
+                )
+
+            elif cfg.agent_type == "loop":
+                sub_agent_instances = [built_agents[s] for s in cfg.sub_agents if s in built_agents]
+                built_agents[cfg.agent_id] = LoopAgent(
+                    name=cfg.agent_id,
+                    sub_agents=sub_agent_instances,
+                    description=cfg.description or f"Loop: {', '.join(cfg.sub_agents)}",
+                )
+
+        # Identify root agents = custom agents not referenced as sub_agent by
+        # any other custom agent.
+        all_sub_agent_refs: set[str] = set()
+        for cfg in configs:
+            all_sub_agent_refs.update(cfg.sub_agents)
+
+        root_custom_ids = [cfg.agent_id for cfg in configs if cfg.agent_id not in all_sub_agent_refs]
+
+        custom_tools: list[AgentTool] = []
+        for agent_id in root_custom_ids:
+            if agent_id in built_agents:
+                custom_tools.append(AgentTool(agent=built_agents[agent_id]))
+
+        # ── Compose orchestrator ────────────────────────────────────────
 
         orchestrator_tools: list[Any] = [
             AgentTool(agent=intent_router),
@@ -904,23 +1161,21 @@ class AgentDefinitionBuilder:
         if runtime_planner_mode != "off":
             orchestrator_tools.append(AgentTool(agent=plan_react_planner))
 
-        orchestrator_tools.extend(
-            [
-                AgentTool(agent=strava_ingestion_agent),
-                AgentTool(agent=query_agent),
-                AgentTool(agent=answer_agent),
-                *prompt_tools,
-            ]
-        )
+        orchestrator_tools.extend([
+            AgentTool(agent=strava_ingestion_agent),
+            AgentTool(agent=query_agent),
+            AgentTool(agent=answer_agent),
+            *custom_tools,
+        ])
 
         orchestrator_instruction = _build_default_orchestrator_instruction(
             runtime_planner_mode,
-            custom_prompt_agent_ids=[item.prompt_id for item in prompt_configs],
+            custom_agent_ids=root_custom_ids,
         )
 
         return LlmAgent(
             name="orchestrator",
-            model=selected_model,
+            model=default_model,
             instruction=orchestrator_instruction,
             tools=orchestrator_tools,
         )
