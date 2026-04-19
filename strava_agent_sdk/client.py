@@ -328,6 +328,21 @@ class StravaAgentClient:
             target_date=target_date,
         )
 
+    async def get_agent_chain_logs(
+        self,
+        *,
+        athlete_id: int,
+        page: int = 1,
+        page_size: int = 5,
+        include_events: bool = False,
+    ) -> dict[str, Any]:
+        return await self.chat_service.get_agent_chain_logs(
+            athlete_id=athlete_id,
+            page=page,
+            page_size=page_size,
+            include_events=include_events,
+        )
+
     async def start_strava_oauth(self, *, redirect_uri: str, scope: str) -> dict[str, Any]:
         return await self.auth.start_auth(redirect_uri=redirect_uri, scope=scope)
 

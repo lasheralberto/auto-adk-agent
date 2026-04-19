@@ -56,6 +56,7 @@ Chat interface over an athlete's indexed wiki pages. Retrieves relevant insights
 - `agents` for agent template resolution
 - LLM provider (configurable via `get_llm_provider`)
 - Wiki page store (GCS)
+- Firestore trace logs en `agent_definition_logs/{athlete_id}` (via `agent/runner.py`)
 
 ## Behaviour
 
@@ -67,6 +68,7 @@ Chat interface over an athlete's indexed wiki pages. Retrieves relevant insights
 5. `build_wiki_research_chat_agent()` inyecta automáticamente `WIKI_CONTEXT_BLOCK` (wiki + athlete_id) como prefijo del template
 6. `LlmAgent` se construye con el prompt completo (contexto wiki + instrucciones del agente)
 7. `run_agent()` o `run_agent_streaming()` ejecuta y devuelve respuesta
+8. El runner persiste la traza de la conversacion (chain de agentes, eventos y tool calls) en `agent_definition_logs/{athlete_id}`
 
 ### Agent not found
 Si `agent_id` no existe en Firestore ni en `DEFAULT_TEMPLATES`, `get_template()` lanza `ValueError` → HTTP 500.

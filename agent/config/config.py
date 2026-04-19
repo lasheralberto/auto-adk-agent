@@ -2,7 +2,7 @@ import os
 import pathlib
 
 from google.adk.skills import load_skill_from_dir
-from google.adk.models.lite_llm import LiteLlm
+from google.adk.models import Gemini
 from agent.config.envars import get_secret, get_setting, load_environment_from_sources
 
 load_environment_from_sources()
@@ -80,16 +80,15 @@ strava_ingestion_skill = load_skill_from_dir(_SKILLS_DIR / "strava-ingestion-age
 query_skill = load_skill_from_dir(_SKILLS_DIR / "query-agent")
 
 
-def get_llm_provider(model_name: str | None = None) -> LiteLlm:
+def get_llm_provider(model_name: str | None = None) -> Gemini:
     google_api_key = (get_secret("GOOGLE_API_KEY", "") or "").strip()
     if google_api_key:
         os.environ["GOOGLE_API_KEY"] = google_api_key
 
     # El modelo central se define en AGENT_LLM_MODEL. Si el caller pasa un
-    # model_name explícito, se respeta (y se normaliza para litellm); en caso
-    # contrario se usa el valor centralizado.
+    # model_name explícito, se respeta; en caso contrario se usa el valor centralizado.
     if model_name:
         selected_model = _normalize_litellm_model_name(str(model_name))
     else:
         selected_model = AGENT_LLM_MODEL
-    return LiteLlm(model=selected_model)
+    return Gemini(model=selected_model)

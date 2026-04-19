@@ -4,7 +4,7 @@ import asyncio
 from typing import Any, AsyncIterator
 
 from agent.app import build_orchestrator
-from agent.runner import run_agent, run_agent_streaming
+from agent.runner import get_conversation_chain_logs, run_agent, run_agent_streaming
 from agent.tools.pipeline.storage_backend import AthleteStateStore
 from agent.tools.pipeline.workflow import run_query_layer
 
@@ -60,6 +60,28 @@ def _normalize_planner_mode(planner_mode: str | None) -> str:
 
 
 class ChatService:
+    async def get_agent_chain_logs(
+        self,
+        *,
+        athlete_id: int,
+        page: int = 1,
+        page_size: int = 5,
+        include_events: bool = False,
+    ) -> dict[str, Any]:
+        if athlete_id <= 0:
+            raise ValidationError("Field 'athlete_id' is required.")
+
+        resolved_page = max(1, int(page))
+        resolved_page_size = max(1, min(int(page_size), 50))
+
+        return await asyncio.to_thread(
+            get_conversation_chain_logs,
+            int(athlete_id),
+            page=resolved_page,
+            page_size=resolved_page_size,
+            include_events=bool(include_events),
+        )
+
     async def query(
         self,
         *,
@@ -112,6 +134,8 @@ class ChatService:
             prepared["augmented_question"],
             prepared["orchestrator"],
             response_format=normalized_response_format,
+            athlete_id=athlete_id,
+            conversation_question=question,
         )
         normalized = _normalize_chat_result(result)
         normalized["retrieval_hits"] = prepared["retrieval_hits"]
@@ -145,6 +169,8 @@ class ChatService:
             prepared["augmented_question"],
             prepared["orchestrator"],
             response_format=normalized_response_format,
+            athlete_id=athlete_id,
+            conversation_question=question,
         ):
             yield chunk
 

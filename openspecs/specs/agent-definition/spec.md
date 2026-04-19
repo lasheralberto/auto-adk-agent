@@ -1,9 +1,13 @@
-# Spec: Agent Definition (v3 — Multi-Agent Patterns)
+# Spec: Agent Definition (v3.1 — Consensus Loop Runtime)
 
 ## Purpose
 
-Permitir a cada atleta diseñar visualmente un sistema multi-agente usando los
-patrones nativos de Google ADK:
+Permitir a cada atleta diseñar visualmente un sistema multi-agente con una
+interaccion util entre agentes: iteracion por rondas, intercambio por
+`output_key` y sintesis final de consenso.
+
+El schema TOML mantiene compatibilidad con tipos ADK, pero el runtime de chat
+usa un modo determinista de consenso sobre los agentes definidos por el usuario.
 
 - **Coordinator/Dispatcher** — un LlmAgent central delega a sub-agentes.
 - **Sequential Pipeline** — SequentialAgent ejecuta sub-agentes en orden fijo.
@@ -11,19 +15,22 @@ patrones nativos de Google ADK:
 - **Loop / Iterative Refinement** — LoopAgent repite sub-agentes hasta condición.
 - **Hierarchical** — árboles multi-nivel combinando los patrones anteriores.
 
-El usuario define agentes, sus relaciones (`sub_agents`) y tipo de composición
-desde un panel visual. El backend traduce el TOML a un grafo ADK real.
+El usuario define agentes (nombre, prompt, modelo, output_key y orden) desde un
+panel visual. El backend traduce el TOML a un pipeline de consenso ejecutable.
 
 ## Scope
 
 - In scope:
   - Schema TOML v3 con `[[agents]]`, `type`, `model`, `description`, `sub_agents`.
+  - Compatibilidad de lectura con tablas nombradas: `[agents.<id>]` y `[workflow.<id>]`.
+  - `type = "custom"` para agentes registrados en backend via factory.
   - Almacenamiento en Firestore collection `agent_definition_file`.
   - Endpoints CRUD + validate (sin cambio de path).
-  - Builder que compone agentes ADK reales (LlmAgent, SequentialAgent,
-    ParallelAgent, LoopAgent) según la topología declarada.
-  - UI visual: lista de agentes con selector de tipo, modelo, sub_agents y
-    preview de topología.
+  - Builder que compone un consenso determinista: rondas de agentes +
+    sintetizador final (`SequentialAgent`).
+  - UI visual simplificada: lista de agentes, editor llm-only y preview del
+    ciclo de iteracion + nodo de consenso.
+  - Canvas visual de solo lectura para inspeccionar el flujo de consenso.
   - Validación: ciclos, referencias válidas, tipos correctos.
   - Migración automática de v2 `[[prompt_agents]]` → v3 `[[agents]]`.
 - Out of scope:
@@ -48,6 +55,7 @@ entrypoint = "orchestrator"
 
 [[agents]]
 id = "researcher"
+name = "Researcher"
 type = "llm"
 model = "openai/gpt-5-mini"
 description = "Investiga datos de entrenamiento del atleta"
@@ -57,6 +65,7 @@ order = 1
 
 [[agents]]
 id = "summarizer"
+name = "Summarizer"
 type = "llm"
 model = "gemini/gemini-2.5-flash"
 description = "Resume hallazgos de investigación"
@@ -66,11 +75,40 @@ order = 2
 
 [[agents]]
 id = "research_pipeline"
+name = "Research Pipeline"
 type = "sequential"
 description = "Ejecuta researcher y luego summarizer en secuencia"
 sub_agents = ["researcher", "summarizer"]
 order = 3
 ```
+
+### Compatibilidad de entrada (normalizada a v3)
+
+También se acepta el formato por tablas nombradas para facilitar edición manual
+de workflows:
+
+```toml
+[system]
+entrypoint = "orchestrator"
+
+[agents.researcher]
+name = "Researcher"
+type = "LlmAgent"
+model = "openai/gpt-5-mini"
+instructions = "Analiza los datos recientes."
+output_key = "research_result"
+
+[workflow.pipeline]
+name = "Pipeline"
+type = "SequentialAgent"
+sub_agents = ["researcher", "summarizer"]
+```
+
+Durante lectura:
+- `LlmAgent` / `SequentialAgent` / `ParallelAgent` / `LoopAgent` se mapean a
+  `llm` / `sequential` / `parallel` / `loop`.
+- `instruction` o `instructions` se mapean a `prompt`.
+- En el primer `PUT` exitoso, se persiste en formato canónico `[[agents]]`.
 
 ### Campos permitidos
 
@@ -84,11 +122,13 @@ order = 3
 
 | Campo | Tipo | Requerido | Descripción |
 |-------|------|-----------|-------------|
-| `id` | string | sí | snake_case, único, no reservado |
-| `type` | string | sí | `llm` \| `sequential` \| `parallel` \| `loop` |
+| `id` | string | sí | snake_case, único, no reservado. Auto-generado desde `name`. |
+| `name` | string | sí | Nombre visible del agente. El `id` se deriva normalizando este campo. |
+| `type` | string | sí | `llm` \| `sequential` \| `parallel` \| `loop` (compatibilidad de schema; runtime usa consenso llm-only) |
 | `model` | string | no | LiteLLM model ID (solo para `type = "llm"`). Vacío = modelo de entorno |
 | `description` | string | no | Descripción para delegación LLM (recomendado) |
 | `prompt` | string | sí* | Instrucción del agente. *Requerido solo para `type = "llm"` |
+| `custom_type` | string | sí* | Identificador de factory registrada. *Requerido para `type = "custom"` (o inferido desde `name`) |
 | `sub_agents` | string[] | sí* | IDs de agentes hijos. *Requerido y no vacío para `sequential`, `parallel`, `loop` |
 | `output_key` | string | no | Clave de estado donde el agente guarda su output (para pipelines) |
 | `order` | int | no | Prioridad visual / de evaluación |
@@ -101,6 +141,11 @@ order = 3
 | `sequential` | `SequentialAgent` | `sub_agents` (≥1) | Ejecuta hijos en orden. Output del anterior disponible vía `output_key`. |
 | `parallel` | `ParallelAgent` | `sub_agents` (≥1) | Ejecuta hijos concurrentemente. Resultados en estado compartido. |
 | `loop` | `LoopAgent` | `sub_agents` (≥1) | Itera sobre hijos hasta `max_iterations` o escalación. |
+| `custom` | Factory registrada | `custom_type` \/ `name` | Instancia un agente Python custom registrado en backend. |
+
+> Nota runtime: en chat, los agentes definidos por usuario se ejecutan en modo
+> consenso llm-only por rondas. `type` y `sub_agents` se mantienen para
+> compatibilidad de lectura/validacion del TOML.
 
 ### Campos NO permitidos
 
@@ -153,23 +198,29 @@ Body de `PUT`:
 }
 ```
 
-## Builder Behaviour (v3)
+## Builder Behaviour (v3.1)
 
 `AgentDefinitionBuilder.build_orchestrator()`:
 
 1. Cargar TOML del atleta (o template por defecto).
 2. Parsear y validar schema v3.
-3. Construir grafo de dependencias desde `sub_agents`.
-4. Validar: sin ciclos, todas las refs existen, tipos correctos.
-5. Construir agentes bottom-up (hojas primero):
-   - `type = "llm"` → `LlmAgent(name=id, instruction=prompt, model=model)`
-   - `type = "sequential"` → `SequentialAgent(name=id, sub_agents=[...])`
-   - `type = "parallel"` → `ParallelAgent(name=id, sub_agents=[...])`
-   - `type = "loop"` → `LoopAgent(name=id, sub_agents=[...])`
-6. Agentes raíz (no referenciados como sub_agent por ningún otro custom) →
-   `AgentTool` del orchestrator.
-7. Agentes internos del sistema (intent_router, query_agent, etc.) → siempre
-   como `AgentTool` del orchestrator.
+3. Cargar agentes definidos por usuario, ordenados por `order`.
+4. Resolver `output_key` por agente (si falta, fallback `{agent_id}_output`).
+5. Construir pipeline de consenso determinista:
+  - Rondas fijas de iteracion (actualmente 2).
+  - En cada ronda, cada agente se ejecuta como `LlmAgent` y escribe su
+    resultado en su `output_key`.
+  - Al final, un `consensus_finalizer` sintetiza una respuesta unica.
+6. Exponer ese pipeline como un solo `AgentTool` (`consensus_loop_pipeline`)
+  para el orchestrator.
+7. Agentes internos del sistema (intent_router, query_agent, etc.) se
+  mantienen como `AgentTool` del orchestrator.
+
+### Compatibilidad de tipos en runtime
+
+- El TOML sigue aceptando `type` y `sub_agents` por compatibilidad.
+- En runtime de chat, los agentes definidos por usuario se ejecutan en modo
+  consenso (llm-only) independientemente del `type` declarado.
 
 ### Resolución de modelo
 
@@ -189,24 +240,19 @@ Panel lateral derecho (drawer) con:
 1. **Sidebar** (280px): lista de agentes con badges de tipo e icono.
 2. **Editor** (resto): propiedades del agente seleccionado:
    - ID (solo lectura)
-   - Tipo (dropdown: llm, sequential, parallel, loop)
-   - Modelo (dropdown, solo visible para type=llm)
+  - Modelo (dropdown)
    - Descripción (input text)
-   - Prompt (textarea, solo visible para type=llm)
-   - Sub-agents (checkboxes de agentes disponibles, excluye self + ancestros)
+  - Prompt (textarea)
    - Output key (input text, opcional)
+  - Orden de ejecucion (botones arriba/abajo en sidebar)
 
 ### Topology Preview
 
-Debajo de la lista de agentes en sidebar, mini-visualización de la jerarquía
-como árbol indentado con iconos de tipo:
+Debajo de la lista de agentes, se visualiza un ciclo de iteracion automatico:
 
 ```
-🤖 researcher (llm)
-🤖 summarizer (llm)
-📋 research_pipeline (sequential)
-  ├─ researcher
-  └─ summarizer
+agent_1 -> agent_2 -> ... -> agent_n -> agent_1
+agent_i --(output_key)--> consenso_final
 ```
 
 ## Validation Rules (v3)
@@ -252,5 +298,15 @@ Backward compatibility automática:
 
 - `tomllib` / `tomli`
 - Firestore (`firebase_admin`)
-- Google ADK 1.26+ (`LlmAgent`, `SequentialAgent`, `ParallelAgent`,
-  `LoopAgent`, `AgentTool`)
+- Google ADK 1.26+ (`LlmAgent`, `SequentialAgent`, `AgentTool`)
+
+### Registro de CustomAgent (backend)
+
+El backend expone registro dinámico de factories en `agent.builder`:
+
+- `register_custom_agent(custom_type, factory)`
+- `unregister_custom_agent(custom_type)`
+- `list_registered_custom_agents()`
+
+El `factory` recibe `(config, sub_agents)` y debe devolver una instancia de
+agente ADK válida para ser envuelta por `AgentTool` en el orchestrator.

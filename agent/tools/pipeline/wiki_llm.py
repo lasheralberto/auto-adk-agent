@@ -16,7 +16,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-import litellm
+import google.generativeai as genai
 
 from agent.config.config import get_wiki_llm_model
 from agent.config.envars import get_secret
@@ -32,32 +32,28 @@ def _call_llm(
     user: str,
     json_mode: bool = False,
 ) -> str:
-    """Llamada genérica a litellm.completion()."""
-    model = get_wiki_llm_model()
+    """Llamada genérica a google.generativeai."""
+    model_name = get_wiki_llm_model()
     api_key = (
         os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
         or (get_secret("GEMINI_API_KEY", "") or "").strip()
         or (get_secret("GOOGLE_API_KEY", "") or "").strip()
     )
-    if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key
-        os.environ["GOOGLE_API_KEY"] = api_key
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": 0.3,
-    }
-    if api_key:
-        kwargs["api_key"] = api_key
-    if json_mode:
-        kwargs["response_format"] = {"type": "json_object"}
 
-    response = litellm.completion(**kwargs)
-    return response.choices[0].message.content or ""
+    genai.configure(api_key=api_key)
+
+    generation_config = {"temperature": 0.3}
+    if json_mode:
+        generation_config["response_mime_type"] = "application/json"
+
+    model = genai.GenerativeModel(
+        model_name=model_name,
+        system_instruction=system,
+        generation_config=generation_config,
+    )
+    response = model.generate_content(user)
+    return response.text or ""
 
 
 def _parse_json_response(raw: str) -> Any:

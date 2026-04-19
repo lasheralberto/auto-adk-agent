@@ -24,7 +24,7 @@ except Exception:  # noqa: BLE001
     firebase_admin = None
     firebase_firestore = None
 
-from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent, LoopAgent
+from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.skills import load_skill_from_dir
 from google.adk.tools.agent_tool import AgentTool
 
@@ -43,12 +43,42 @@ MAX_DEFINITION_AGENTS = 10
 DEFAULT_COLLECTION = "agent_definition_file"
 SKILLS_DIR = pathlib.Path(__file__).parent / "skills"
 VALID_PLANNER_MODES = {"always", "full_only", "off"}
-VALID_AGENT_TYPES = {"llm", "sequential", "parallel", "loop"}
+VALID_AGENT_TYPES = {"llm", "sequential", "parallel", "loop", "custom"}
 AGENT_ID_RE = re.compile(r"^[a-z0-9_]+$")
+CONSENSUS_ITERATIONS = 2
+CONSENSUS_TOOL_ID = "consensus_loop_pipeline"
+
+AGENT_TYPE_ALIASES = {
+    "llm": "llm",
+    "llmagent": "llm",
+    "sequential": "sequential",
+    "sequentialagent": "sequential",
+    "parallel": "parallel",
+    "parallelagent": "parallel",
+    "loop": "loop",
+    "loopagent": "loop",
+    "custom": "custom",
+    "customagent": "custom",
+}
 
 SYSTEM_ALLOWED_FIELDS = {"entrypoint"}
-AGENT_ALLOWED_FIELDS = {"id", "type", "model", "prompt", "description", "sub_agents", "output_key", "order"}
-ROOT_ALLOWED_FIELDS = {"system", "agents"}
+AGENT_ALLOWED_FIELDS = {
+    "id",
+    "name",
+    "type",
+    "model",
+    "prompt",
+    "instruction",
+    "instructions",
+    "description",
+    "sub_agents",
+    "output_key",
+    "custom_type",
+    "custom_class",
+    "custom_factory",
+    "order",
+}
+ROOT_ALLOWED_FIELDS = {"system", "agents", "workflow"}
 
 # Legacy v2 support
 LEGACY_SYSTEM_ALLOWED_FIELDS = {"entrypoint", "model", "planner_mode"}
@@ -75,6 +105,43 @@ TOOL_CATALOG: dict[str, Callable[..., Any]] = {
     "run_query_pipeline": run_query_pipeline,
 }
 
+CUSTOM_AGENT_REGISTRY: dict[str, Callable[[Any, list[Any]], Any]] = {}
+
+
+def _normalize_custom_agent_key(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    normalized = re.sub(r"\s+", "_", normalized)
+    normalized = re.sub(r"[^a-z0-9_]", "", normalized)
+    return normalized
+
+
+def register_custom_agent(custom_type: str, factory: Callable[[Any, list[Any]], Any]) -> None:
+    """Register a backend factory for TOML agents with type=custom."""
+    key = _normalize_custom_agent_key(custom_type)
+    if not key:
+        raise ValueError("custom_type must be a non-empty string.")
+    if not callable(factory):
+        raise ValueError("factory must be callable.")
+    CUSTOM_AGENT_REGISTRY[key] = factory
+
+
+def unregister_custom_agent(custom_type: str) -> bool:
+    key = _normalize_custom_agent_key(custom_type)
+    if not key:
+        return False
+    return CUSTOM_AGENT_REGISTRY.pop(key, None) is not None
+
+
+def list_registered_custom_agents() -> list[str]:
+    return sorted(CUSTOM_AGENT_REGISTRY.keys())
+
+
+def _resolve_custom_agent_factory(custom_ref: str) -> Callable[[Any, list[Any]], Any] | None:
+    key = _normalize_custom_agent_key(custom_ref)
+    if not key:
+        return None
+    return CUSTOM_AGENT_REGISTRY.get(key)
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -99,12 +166,24 @@ def _build_default_orchestrator_instruction(
     planner_mode: str,
     *,
     custom_agent_ids: list[str] | None = None,
+    consensus_tool_id: str | None = None,
+    consensus_rounds: int = CONSENSUS_ITERATIONS,
 ) -> str:
     planner_directive = _build_runtime_planner_directive(planner_mode)
     custom_agent_ids = custom_agent_ids or []
 
     custom_lines = ""
-    if custom_agent_ids:
+    if consensus_tool_id and custom_agent_ids:
+        items = "\n".join(f"- {agent_id}" for agent_id in custom_agent_ids)
+        custom_lines = (
+            "\nConsensus loop (user-defined):\n"
+            f"- tool: {consensus_tool_id}\n"
+            f"- rounds: {consensus_rounds}\n"
+            "Participants:\n"
+            f"{items}\n"
+            "For athlete questions, run this tool once before finalizing.\n"
+        )
+    elif custom_agent_ids:
         items = "\n".join(f"- {agent_id}" for agent_id in custom_agent_ids)
         custom_lines = (
             "\nCustom agents (user-defined):\n"
@@ -122,7 +201,8 @@ def _build_default_orchestrator_instruction(
         "- answer_agent\n"
         f"{custom_lines}\n"
         "Routing rules:\n"
-        "- For user questions about training data, delegate to query_agent first.\n"
+        "- If consensus loop is available and user asks an athlete question, run it first.\n"
+        "- If extra retrieval is needed after consensus, delegate to query_agent.\n"
         "- For sync/ingestion requests, use strava_ingestion_agent.\n"
         "- Use answer_agent only for generic conversation or final wording.\n"
         "- Pipeline stages are handled externally via API endpoints.\n\n"
@@ -171,6 +251,28 @@ def _normalize_agent_id(value: str, *, index: int) -> str:
     return normalized
 
 
+def _normalize_agent_type(value: Any, *, fallback: str = "llm") -> str:
+    normalized = str(value or fallback).strip().lower()
+    return AGENT_TYPE_ALIASES.get(normalized, normalized)
+
+
+def _extract_prompt(raw_agent: dict[str, Any]) -> str:
+    """Read prompt from v3-compatible fields, including model aliases."""
+    prompt = raw_agent.get("prompt")
+    if isinstance(prompt, str):
+        return prompt
+
+    instruction = raw_agent.get("instruction")
+    if isinstance(instruction, str):
+        return instruction
+
+    instructions = raw_agent.get("instructions")
+    if isinstance(instructions, str):
+        return instructions
+
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # v3 normalization
 # ---------------------------------------------------------------------------
@@ -187,14 +289,21 @@ def _extract_agents_v3(raw_agents: Any) -> list[dict[str, Any]]:
 
         raw_id = str(raw_agent.get("id") or "")
         agent_id = _normalize_agent_id(raw_id, index=index)
-        agent_type = str(raw_agent.get("type") or "llm").strip().lower()
+        agent_type = _normalize_agent_type(raw_agent.get("type"), fallback="llm")
         if agent_type not in VALID_AGENT_TYPES:
             agent_type = "llm"
 
+        name = str(raw_agent.get("name") or "")
         model = str(raw_agent.get("model") or "")
         description = str(raw_agent.get("description") or "")
-        prompt = str(raw_agent.get("prompt") or "")
+        prompt = _extract_prompt(raw_agent)
         output_key = str(raw_agent.get("output_key") or "")
+        custom_type = str(
+            raw_agent.get("custom_type")
+            or raw_agent.get("custom_class")
+            or raw_agent.get("custom_factory")
+            or ""
+        )
 
         raw_sub_agents = raw_agent.get("sub_agents")
         sub_agents: list[str] = []
@@ -209,12 +318,76 @@ def _extract_agents_v3(raw_agents: Any) -> list[dict[str, Any]]:
 
         agents.append({
             "id": agent_id,
+            "name": name,
             "type": agent_type,
             "model": model,
             "description": description,
             "prompt": prompt,
             "sub_agents": sub_agents,
             "output_key": output_key,
+            "custom_type": custom_type,
+            "order": order,
+        })
+
+    return agents
+
+
+def _extract_agents_from_named_tables(
+    raw_tables: Any,
+    *,
+    default_type: str,
+    order_offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Extract agents from TOML named tables: [agents.id] / [workflow.id]."""
+    if not isinstance(raw_tables, dict):
+        return []
+
+    agents: list[dict[str, Any]] = []
+    for index, (table_id, raw_agent) in enumerate(raw_tables.items(), start=1):
+        if not isinstance(raw_agent, dict):
+            continue
+
+        raw_id = str(raw_agent.get("id") or table_id or "")
+        agent_id = _normalize_agent_id(raw_id, index=order_offset + index)
+
+        agent_type = _normalize_agent_type(raw_agent.get("type"), fallback=default_type)
+        if agent_type not in VALID_AGENT_TYPES:
+            # Keep unknown values for explicit validation errors later.
+            agent_type = str(raw_agent.get("type") or default_type).strip().lower()
+
+        name = str(raw_agent.get("name") or table_id or agent_id)
+        model = str(raw_agent.get("model") or "")
+        description = str(raw_agent.get("description") or "")
+        prompt = _extract_prompt(raw_agent)
+        output_key = str(raw_agent.get("output_key") or "")
+        custom_type = str(
+            raw_agent.get("custom_type")
+            or raw_agent.get("custom_class")
+            or raw_agent.get("custom_factory")
+            or ""
+        )
+
+        raw_sub_agents = raw_agent.get("sub_agents")
+        sub_agents: list[str] = []
+        if isinstance(raw_sub_agents, list):
+            for ref in raw_sub_agents:
+                ref_str = str(ref).strip()
+                if ref_str:
+                    sub_agents.append(ref_str)
+
+        raw_order = raw_agent.get("order")
+        order = raw_order if isinstance(raw_order, int) else (order_offset + index)
+
+        agents.append({
+            "id": agent_id,
+            "name": name,
+            "type": agent_type,
+            "model": model,
+            "description": description,
+            "prompt": prompt,
+            "sub_agents": sub_agents,
+            "output_key": output_key,
+            "custom_type": custom_type,
             "order": order,
         })
 
@@ -244,12 +417,14 @@ def _migrate_v2_to_v3(parsed: dict[str, Any]) -> dict[str, Any]:
 
             agents.append({
                 "id": agent_id,
+                "name": str(raw_agent.get("name") or agent_id),
                 "type": "llm",
                 "model": str(raw_agent.get("model") or ""),
                 "description": "",
                 "prompt": prompt,
                 "sub_agents": [],
                 "output_key": "",
+                "custom_type": "",
                 "order": order,
             })
 
@@ -264,17 +439,19 @@ def _migrate_v2_to_v3(parsed: dict[str, Any]) -> dict[str, Any]:
                 normalized_id = _normalize_agent_id(raw_id, index=index)
                 if normalized_id in RESERVED_AGENT_IDS:
                     continue
-                instruction = raw_agent.get("instruction")
-                if not isinstance(instruction, str) or not instruction.strip():
+                prompt = _extract_prompt(raw_agent)
+                if not prompt.strip():
                     continue
                 agents.append({
                     "id": normalized_id,
+                    "name": raw_id or normalized_id,
                     "type": "llm",
                     "model": "",
                     "description": "",
-                    "prompt": instruction,
+                    "prompt": prompt,
                     "sub_agents": [],
                     "output_key": "",
+                    "custom_type": "",
                     "order": len(agents) + 1,
                 })
 
@@ -289,15 +466,37 @@ def _to_v3_definition(parsed: dict[str, Any]) -> dict[str, Any]:
     has_v3_agents = isinstance(root.get("agents"), list) and any(
         isinstance(a, dict) and "type" in a for a in root["agents"]
     )
+    has_named_tables = isinstance(root.get("agents"), dict) or isinstance(root.get("workflow"), dict)
     has_v2_prompt_agents = isinstance(root.get("prompt_agents"), list)
     has_legacy_agents = isinstance(root.get("agents"), list) and any(
-        isinstance(a, dict) and "instruction" in a for a in root.get("agents", [])
+        isinstance(a, dict) and ("instruction" in a or "instructions" in a) for a in root.get("agents", [])
     )
 
+    raw_system = root.get("system") if isinstance(root.get("system"), dict) else {}
+    system = {"entrypoint": str(raw_system.get("entrypoint") or "orchestrator").strip() or "orchestrator"}
+
+    if has_named_tables:
+        agents: list[dict[str, Any]] = []
+        named_agents = _extract_agents_from_named_tables(root.get("agents"), default_type="llm")
+        named_workflows = _extract_agents_from_named_tables(
+            root.get("workflow"),
+            default_type="sequential",
+            order_offset=len(named_agents),
+        )
+        agents.extend(named_agents)
+        agents.extend(named_workflows)
+        return {"system": system, "agents": agents}
+
     if has_v3_agents:
-        raw_system = root.get("system") if isinstance(root.get("system"), dict) else {}
-        system = {"entrypoint": str(raw_system.get("entrypoint") or "orchestrator").strip() or "orchestrator"}
         agents = _extract_agents_v3(root["agents"])
+        # Allow hybrid TOML where [[agents]] and [workflow.*] coexist.
+        if isinstance(root.get("workflow"), dict):
+            workflow_agents = _extract_agents_from_named_tables(
+                root.get("workflow"),
+                default_type="sequential",
+                order_offset=len(agents),
+            )
+            agents.extend(workflow_agents)
         return {"system": system, "agents": agents}
 
     if has_v2_prompt_agents or has_legacy_agents:
@@ -387,6 +586,8 @@ def _validate_definition(parsed: dict[str, Any], *, strict: bool) -> list[str]:
         agent_id = str(agent.get("id") or "").strip()
         agent_type = str(agent.get("type") or "llm")
         prompt = str(agent.get("prompt") or "")
+        name = str(agent.get("name") or "").strip()
+        custom_type = str(agent.get("custom_type") or "").strip()
         sub_agents = agent.get("sub_agents") or []
 
         if not agent_id:
@@ -412,6 +613,15 @@ def _validate_definition(parsed: dict[str, Any], *, strict: bool) -> list[str]:
         if agent_type in ("sequential", "parallel", "loop"):
             if not sub_agents:
                 errors.append(f"Agent '{agent_id}': 'sub_agents' required and non-empty for type '{agent_type}'.")
+
+        if agent_type == "custom":
+            custom_ref = custom_type or name or agent_id
+            if not custom_ref.strip():
+                errors.append(f"Agent '{agent_id}': custom agent reference is required.")
+            elif _resolve_custom_agent_factory(custom_ref) is None:
+                errors.append(
+                    f"Agent '{agent_id}': custom agent '{custom_ref}' is not registered in backend."
+                )
 
         # Validate sub_agent references
         for ref in sub_agents:
@@ -518,26 +728,33 @@ def _stringify_v3_definition(parsed: dict[str, Any]) -> str:
 
     for agent in agents:
         agent_id = str(agent.get("id") or "")
+        name = str(agent.get("name") or agent_id)
         agent_type = str(agent.get("type") or "llm")
         model = str(agent.get("model") or "")
         description = str(agent.get("description") or "")
         prompt = str(agent.get("prompt") or "")
         sub_agents = agent.get("sub_agents") or []
         output_key = str(agent.get("output_key") or "")
+        custom_type = str(agent.get("custom_type") or "")
         order = int(agent.get("order") or 0)
 
         lines.extend([
             "",
             "[[agents]]",
             f"id = {json.dumps(agent_id, ensure_ascii=False)}",
+            f"name = {json.dumps(name, ensure_ascii=False)}",
             f"type = {json.dumps(agent_type, ensure_ascii=False)}",
             f"model = {json.dumps(model, ensure_ascii=False)}",
             f"description = {json.dumps(description, ensure_ascii=False)}",
             f"prompt = {json.dumps(prompt, ensure_ascii=False)}",
             f"sub_agents = [{', '.join(json.dumps(s, ensure_ascii=False) for s in sub_agents)}]",
             f"output_key = {json.dumps(output_key, ensure_ascii=False)}",
-            f"order = {order}",
         ])
+
+        if custom_type or agent_type == "custom":
+            lines.append(f"custom_type = {json.dumps(custom_type, ensure_ascii=False)}")
+
+        lines.append(f"order = {order}")
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -588,13 +805,94 @@ class AgentDefinitionEntry:
 @dataclass(slots=True)
 class AgentConfig:
     agent_id: str
+    name: str
     agent_type: str
     model: str
     description: str
     prompt: str
+    custom_type: str = ""
     sub_agents: list[str] = field(default_factory=list)
     output_key: str = ""
     order: int = 0
+
+
+def _resolve_consensus_output_key(cfg: AgentConfig) -> str:
+    candidate = cfg.output_key.strip() if isinstance(cfg.output_key, str) else ""
+    if not candidate:
+        candidate = f"{cfg.agent_id}_output"
+
+    candidate = re.sub(r"\s+", "_", candidate)
+    candidate = re.sub(r"[^a-zA-Z0-9_]", "", candidate)
+    if not candidate:
+        candidate = f"{cfg.agent_id}_output"
+    return candidate
+
+
+def _resolve_consensus_participant_prompt(cfg: AgentConfig) -> str:
+    prompt = cfg.prompt.strip() if isinstance(cfg.prompt, str) else ""
+    if prompt:
+        return prompt
+
+    description = cfg.description.strip() if isinstance(cfg.description, str) else ""
+    if description:
+        return description
+
+    display_name = (cfg.name or cfg.agent_id).strip() or cfg.agent_id
+    return (
+        f"Eres {display_name}. "
+        "Analiza la pregunta del atleta y aporta una recomendacion accionable."
+    )
+
+
+def _build_consensus_participant_instruction(
+    *,
+    cfg: AgentConfig,
+    participants: list[AgentConfig],
+    output_keys_by_agent: dict[str, str],
+    round_index: int,
+    total_rounds: int,
+) -> str:
+    base_prompt = _resolve_consensus_participant_prompt(cfg)
+    shared_state_lines = []
+    for participant in participants:
+        key = output_keys_by_agent[participant.agent_id]
+        shared_state_lines.append(f"- {participant.agent_id} ({key}): {{{key}}}")
+    shared_state_block = "\n".join(shared_state_lines)
+
+    return (
+        f"{base_prompt}\n\n"
+        "Modo: consenso multi-agente.\n"
+        f"Ronda: {round_index}/{total_rounds}.\n"
+        f"Debes guardar tu resultado final en output_key '{output_keys_by_agent[cfg.agent_id]}'.\n"
+        "Usa el estado compartido disponible para refinar tu postura.\n"
+        "Estado compartido (puede estar vacio al inicio):\n"
+        f"{shared_state_block}\n"
+        "Responde en espanol, breve, y agrega solo informacion util para el consenso final."
+    )
+
+
+def _build_consensus_finalizer_instruction(
+    *,
+    participants: list[AgentConfig],
+    output_keys_by_agent: dict[str, str],
+    total_rounds: int,
+) -> str:
+    participant_lines = []
+    for participant in participants:
+        key = output_keys_by_agent[participant.agent_id]
+        display_name = (participant.name or participant.agent_id).strip() or participant.agent_id
+        participant_lines.append(f"- {display_name} [{key}]: {{{key}}}")
+    participant_block = "\n".join(participant_lines)
+
+    return (
+        "Eres el sintetizador final de consenso para el atleta.\n"
+        f"Recibes los aportes despues de {total_rounds} rondas de iteracion.\n"
+        "Integra los aportes y produce una sola respuesta final.\n"
+        "Si hay desacuerdos, explicalos y elige la mejor recomendacion.\n"
+        "Aportes de agentes por output_key:\n"
+        f"{participant_block}\n"
+        "Entrega una respuesta final clara, accionable y breve en espanol."
+    )
 
 
 class AgentDefinitionStore:
@@ -804,25 +1102,27 @@ def _agent_configs(parsed: dict[str, Any]) -> list[AgentConfig]:
     configs: list[AgentConfig] = []
     for agent in agents:
         agent_id = str(agent.get("id") or "").strip()
+        name = str(agent.get("name") or agent_id).strip() or agent_id
         agent_type = str(agent.get("type") or "llm")
         model = str(agent.get("model") or "")
         description = str(agent.get("description") or "")
         prompt = str(agent.get("prompt") or "")
+        custom_type = str(agent.get("custom_type") or "").strip()
         sub_agents = agent.get("sub_agents") or []
         output_key = str(agent.get("output_key") or "")
         order = int(agent.get("order") or 0)
 
         if not agent_id:
             continue
-        if agent_type == "llm" and not prompt.strip():
-            continue
 
         configs.append(AgentConfig(
             agent_id=agent_id,
+            name=name,
             agent_type=agent_type,
             model=model,
             description=description,
             prompt=prompt,
+            custom_type=custom_type,
             sub_agents=[str(s) for s in sub_agents],
             output_key=output_key,
             order=order,
@@ -961,6 +1261,109 @@ class AgentDefinitionBuilder:
         except Exception:  # noqa: BLE001
             return None
 
+    def build_wiki_consensus_agent(
+        self,
+        *,
+        athlete_id: str | int,
+        wiki_context_block: str,
+        model_name: str | None = None,
+    ) -> LlmAgent | None:
+        """Build a consensus pipeline from the athlete's custom TOML agents.
+
+        Each custom agent gets wiki context prepended to its prompt.
+        Returns ``None`` when the athlete has no custom definition or only one
+        (or zero) non-reserved agents — the caller should fall back to the
+        single-agent path.
+        """
+        normalized_athlete_id = str(athlete_id).strip()
+        if not normalized_athlete_id:
+            return None
+
+        entry = self._store.get(normalized_athlete_id)
+        if entry.is_default:
+            return None
+
+        try:
+            parsed = _parse_toml(entry.toml_content)
+            normalized = _to_v3_definition(parsed)
+            errors = _validate_definition(normalized, strict=False)
+            if errors:
+                return None
+        except Exception:  # noqa: BLE001
+            return None
+
+        configs = _agent_configs(normalized)
+        participants = [cfg for cfg in configs if cfg.agent_id not in RESERVED_AGENT_IDS]
+        if len(participants) < 2:
+            return None
+
+        fallback_model_name = model_name.strip() if isinstance(model_name, str) and model_name.strip() else None
+        default_model = get_llm_provider(model_name=fallback_model_name)
+
+        output_keys_by_agent = {
+            cfg.agent_id: _resolve_consensus_output_key(cfg)
+            for cfg in participants
+        }
+
+        loop_sub_agents: list[Any] = []
+        for round_index in range(1, CONSENSUS_ITERATIONS + 1):
+            for cfg in participants:
+                agent_model_name = cfg.model.strip() if cfg.model.strip() else fallback_model_name
+                agent_model = get_llm_provider(model_name=agent_model_name)
+                base_instruction = _build_consensus_participant_instruction(
+                    cfg=cfg,
+                    participants=participants,
+                    output_keys_by_agent=output_keys_by_agent,
+                    round_index=round_index,
+                    total_rounds=CONSENSUS_ITERATIONS,
+                )
+                participant_instruction = wiki_context_block + base_instruction
+                loop_sub_agents.append(
+                    LlmAgent(
+                        name=f"{cfg.agent_id}_round_{round_index}",
+                        model=agent_model,
+                        instruction=participant_instruction,
+                        description=cfg.description or cfg.name or cfg.agent_id,
+                        tools=[],
+                        output_key=output_keys_by_agent[cfg.agent_id],
+                    )
+                )
+
+        consensus_finalizer = LlmAgent(
+            name="consensus_finalizer",
+            model=default_model,
+            instruction=_build_consensus_finalizer_instruction(
+                participants=participants,
+                output_keys_by_agent=output_keys_by_agent,
+                total_rounds=CONSENSUS_ITERATIONS,
+            ),
+            description="Build one final answer from all participant outputs.",
+            tools=[],
+            output_key="consensus_final_answer",
+        )
+
+        consensus_pipeline = SequentialAgent(
+            name="wiki_consensus_pipeline",
+            sub_agents=[*loop_sub_agents, consensus_finalizer],
+            description=(
+                f"Wiki multi-agent consensus loop. "
+                f"rounds={CONSENSUS_ITERATIONS}, participants={len(participants)}"
+            ),
+        )
+
+        # Wrap in a root LlmAgent so the runner can invoke it the same way
+        # as the single wiki_research_chat_agent.
+        return LlmAgent(
+            name="wiki_multi_agent",
+            model=default_model,
+            instruction=(
+                "Ejecuta el pipeline de consenso multi-agente para responder "
+                "la pregunta del usuario usando la wiki del atleta. "
+                "Delega al wiki_consensus_pipeline y devuelve su respuesta final."
+            ),
+            tools=[AgentTool(agent=consensus_pipeline)],
+        )
+
     def build_orchestrator(
         self,
         *,
@@ -1063,95 +1466,67 @@ class AgentDefinitionBuilder:
             tools=[],
         )
 
-        # ── Build custom agents from definition ─────────────────────────
+        # ── Build consensus loop from user-defined agents ───────────────
 
         configs = _agent_configs(normalized)
-
-        # Build agents bottom-up: first create all LlmAgents (leaves), then
-        # compose workflow agents referencing them.
-        built_agents: dict[str, LlmAgent | SequentialAgent | ParallelAgent | LoopAgent] = {}
-
-        # Topological sort: build agents whose sub_agents are all built first
-        config_map: dict[str, AgentConfig] = {c.agent_id: c for c in configs}
-        build_order: list[str] = []
-        visited: set[str] = set()
-
-        def topo_visit(agent_id: str) -> None:
-            if agent_id in visited or agent_id not in config_map:
-                return
-            visited.add(agent_id)
-            for sub_id in config_map[agent_id].sub_agents:
-                topo_visit(sub_id)
-            build_order.append(agent_id)
-
-        for cfg in configs:
-            topo_visit(cfg.agent_id)
-
-        for agent_id in build_order:
-            cfg = config_map[agent_id]
-
-            # Resolve model for LlmAgents
-            if cfg.agent_type == "llm":
-                agent_model_name = cfg.model.strip() if cfg.model.strip() else fallback_model_name
-                agent_model = get_llm_provider(model_name=agent_model_name)
-
-                # Collect sub_agents as AgentTool if this LlmAgent has children
-                agent_tools: list[Any] = []
-                agent_sub_agents_list: list[Any] = []
-                for sub_id in cfg.sub_agents:
-                    if sub_id in built_agents:
-                        agent_sub_agents_list.append(built_agents[sub_id])
-
-                kwargs: dict[str, Any] = {
-                    "name": cfg.agent_id,
-                    "model": agent_model,
-                    "instruction": cfg.prompt,
-                    "description": cfg.description or cfg.prompt[:100],
-                    "tools": agent_tools,
-                }
-                if cfg.output_key:
-                    kwargs["output_key"] = cfg.output_key
-                if agent_sub_agents_list:
-                    kwargs["sub_agents"] = agent_sub_agents_list
-
-                built_agents[cfg.agent_id] = LlmAgent(**kwargs)
-
-            elif cfg.agent_type == "sequential":
-                sub_agent_instances = [built_agents[s] for s in cfg.sub_agents if s in built_agents]
-                built_agents[cfg.agent_id] = SequentialAgent(
-                    name=cfg.agent_id,
-                    sub_agents=sub_agent_instances,
-                    description=cfg.description or f"Sequential pipeline: {', '.join(cfg.sub_agents)}",
-                )
-
-            elif cfg.agent_type == "parallel":
-                sub_agent_instances = [built_agents[s] for s in cfg.sub_agents if s in built_agents]
-                built_agents[cfg.agent_id] = ParallelAgent(
-                    name=cfg.agent_id,
-                    sub_agents=sub_agent_instances,
-                    description=cfg.description or f"Parallel execution: {', '.join(cfg.sub_agents)}",
-                )
-
-            elif cfg.agent_type == "loop":
-                sub_agent_instances = [built_agents[s] for s in cfg.sub_agents if s in built_agents]
-                built_agents[cfg.agent_id] = LoopAgent(
-                    name=cfg.agent_id,
-                    sub_agents=sub_agent_instances,
-                    description=cfg.description or f"Loop: {', '.join(cfg.sub_agents)}",
-                )
-
-        # Identify root agents = custom agents not referenced as sub_agent by
-        # any other custom agent.
-        all_sub_agent_refs: set[str] = set()
-        for cfg in configs:
-            all_sub_agent_refs.update(cfg.sub_agents)
-
-        root_custom_ids = [cfg.agent_id for cfg in configs if cfg.agent_id not in all_sub_agent_refs]
+        participants = [cfg for cfg in configs if cfg.agent_id not in RESERVED_AGENT_IDS]
 
         custom_tools: list[AgentTool] = []
-        for agent_id in root_custom_ids:
-            if agent_id in built_agents:
-                custom_tools.append(AgentTool(agent=built_agents[agent_id]))
+        root_custom_ids: list[str] = []
+
+        if participants:
+            output_keys_by_agent = {
+                cfg.agent_id: _resolve_consensus_output_key(cfg)
+                for cfg in participants
+            }
+
+            loop_sub_agents: list[Any] = []
+            for round_index in range(1, CONSENSUS_ITERATIONS + 1):
+                for cfg in participants:
+                    agent_model_name = cfg.model.strip() if cfg.model.strip() else fallback_model_name
+                    agent_model = get_llm_provider(model_name=agent_model_name)
+                    participant_instruction = _build_consensus_participant_instruction(
+                        cfg=cfg,
+                        participants=participants,
+                        output_keys_by_agent=output_keys_by_agent,
+                        round_index=round_index,
+                        total_rounds=CONSENSUS_ITERATIONS,
+                    )
+                    loop_sub_agents.append(
+                        LlmAgent(
+                            name=f"{cfg.agent_id}_round_{round_index}",
+                            model=agent_model,
+                            instruction=participant_instruction,
+                            description=cfg.description or cfg.name or cfg.agent_id,
+                            tools=[],
+                            output_key=output_keys_by_agent[cfg.agent_id],
+                        )
+                    )
+
+            consensus_finalizer = LlmAgent(
+                name="consensus_finalizer",
+                model=default_model,
+                instruction=_build_consensus_finalizer_instruction(
+                    participants=participants,
+                    output_keys_by_agent=output_keys_by_agent,
+                    total_rounds=CONSENSUS_ITERATIONS,
+                ),
+                description="Build one final answer from all participant outputs.",
+                tools=[],
+                output_key="consensus_final_answer",
+            )
+
+            consensus_pipeline = SequentialAgent(
+                name=CONSENSUS_TOOL_ID,
+                sub_agents=[*loop_sub_agents, consensus_finalizer],
+                description=(
+                    "Deterministic multi-agent consensus loop over user-defined agents. "
+                    f"rounds={CONSENSUS_ITERATIONS}, participants={len(participants)}"
+                ),
+            )
+
+            custom_tools.append(AgentTool(agent=consensus_pipeline))
+            root_custom_ids = [cfg.agent_id for cfg in participants]
 
         # ── Compose orchestrator ────────────────────────────────────────
 
@@ -1171,6 +1546,8 @@ class AgentDefinitionBuilder:
         orchestrator_instruction = _build_default_orchestrator_instruction(
             runtime_planner_mode,
             custom_agent_ids=root_custom_ids,
+            consensus_tool_id=CONSENSUS_TOOL_ID if custom_tools else None,
+            consensus_rounds=CONSENSUS_ITERATIONS,
         )
 
         return LlmAgent(

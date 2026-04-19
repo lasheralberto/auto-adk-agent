@@ -1,14 +1,37 @@
+import asyncio
 import uuid
 import json
+import logging
+import math
+import os
 import re
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+try:
+    import firebase_admin
+    from firebase_admin import firestore as firebase_firestore
+except Exception:  # noqa: BLE001
+    firebase_admin = None
+    firebase_firestore = None
+
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 
+logger = logging.getLogger(__name__)
+
 APP_NAME = "multi_agent_executor"
 USER_ID = "user1"
 _STREAM_CHUNK_SIZE = 180
+DEFAULT_AGENT_CHAIN_LOGS_COLLECTION = "agent_definition_logs"
+DEFAULT_AGENT_CHAIN_LOG_HISTORY_LIMIT = 15
+DEFAULT_AGENT_CHAIN_LOG_EVENT_LIMIT = 80
+DEFAULT_AGENT_CHAIN_LOG_TEXT_LIMIT = 260
+DEFAULT_AGENT_CHAIN_LOG_TOOL_CALL_LIMIT = 60
 
 _PLAN_REACT_SECTION_TAGS: tuple[tuple[str, str], ...] = (
     ("planning", "PLANNING"),
@@ -23,6 +46,546 @@ _PLAN_REACT_TAG_CLEAN_RE = re.compile(
     r"</?(?:PLANNING|REASONING|ACTION|OBSERVATION|REPLANNING|FINAL_ANSWER)>",
     flags=re.IGNORECASE,
 )
+
+
+def _read_positive_int_env(var_name: str, default: int) -> int:
+    raw_value = os.environ.get(var_name)
+    if raw_value is None:
+        return default
+
+    try:
+        parsed = int(str(raw_value).strip())
+        return parsed if parsed > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+_AGENT_CHAIN_LOG_HISTORY_LIMIT = _read_positive_int_env(
+    "FIRESTORE_AGENT_CHAIN_LOG_HISTORY_LIMIT",
+    DEFAULT_AGENT_CHAIN_LOG_HISTORY_LIMIT,
+)
+_AGENT_CHAIN_LOG_EVENT_LIMIT = _read_positive_int_env(
+    "FIRESTORE_AGENT_CHAIN_LOG_EVENT_LIMIT",
+    DEFAULT_AGENT_CHAIN_LOG_EVENT_LIMIT,
+)
+_AGENT_CHAIN_LOG_TEXT_LIMIT = _read_positive_int_env(
+    "FIRESTORE_AGENT_CHAIN_LOG_TEXT_LIMIT",
+    DEFAULT_AGENT_CHAIN_LOG_TEXT_LIMIT,
+)
+_AGENT_CHAIN_LOG_TOOL_CALL_LIMIT = _read_positive_int_env(
+    "FIRESTORE_AGENT_CHAIN_LOG_TOOL_CALL_LIMIT",
+    DEFAULT_AGENT_CHAIN_LOG_TOOL_CALL_LIMIT,
+)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class AgentChainLogStore:
+    """Persist conversation traces under agent_definition_logs/{athlete_id}."""
+
+    def __init__(self) -> None:
+        self._collection = (
+            os.environ.get("FIRESTORE_AGENT_DEFINITION_LOGS_COLLECTION")
+            or os.environ.get("FIRESTORE_AGENT_CHAIN_LOG_COLLECTION")
+            or DEFAULT_AGENT_CHAIN_LOGS_COLLECTION
+        ).strip() or DEFAULT_AGENT_CHAIN_LOGS_COLLECTION
+        self._history_limit = _AGENT_CHAIN_LOG_HISTORY_LIMIT
+        self._state_path = Path(tempfile.gettempdir()) / "strava_agent_state" / "agent_definition_logs.json"
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self._client: Any | None = None
+        use_firestore = os.environ.get("USE_FIRESTORE_STATE", "true").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if use_firestore and firebase_firestore is not None and firebase_admin is not None:
+            try:
+                if not firebase_admin._apps:
+                    project_id = os.environ.get("PROJECT_ID") or None
+                    firebase_admin.initialize_app(options={"projectId": project_id} if project_id else None)
+                self._client = firebase_firestore.client()
+            except Exception:  # noqa: BLE001
+                self._client = None
+
+    def _load_local_state(self) -> dict[str, Any]:
+        if not self._state_path.exists():
+            return {}
+
+        try:
+            payload = json.loads(self._state_path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _save_local_state(self, payload: dict[str, Any]) -> None:
+        self._state_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _get_firestore_payload(self, athlete_id: str) -> dict[str, Any] | None:
+        if self._client is None:
+            return None
+
+        try:
+            doc = self._client.collection(self._collection).document(athlete_id).get()
+            if doc.exists:
+                payload = doc.to_dict()
+                return payload if isinstance(payload, dict) else {}
+            return {}
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to read agent chain log from Firestore for athlete_id=%s. Falling back to local state.",
+                athlete_id,
+            )
+            self._client = None
+            return None
+
+    def _get_local_payload(self, athlete_id: str) -> dict[str, Any]:
+        local_state = self._load_local_state()
+        payload = local_state.get(athlete_id)
+        return payload if isinstance(payload, dict) else {}
+
+    def _get_payload(self, athlete_id: str) -> dict[str, Any]:
+        firestore_payload = self._get_firestore_payload(athlete_id)
+        if isinstance(firestore_payload, dict):
+            return firestore_payload
+        return self._get_local_payload(athlete_id)
+
+    def _trim_conversations(self, conversations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(conversations) <= self._history_limit:
+            return conversations
+        return conversations[-self._history_limit :]
+
+    def _build_document_payload(
+        self,
+        *,
+        athlete_id: str,
+        conversations: list[dict[str, Any]],
+        previous: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        previous = previous if isinstance(previous, dict) else {}
+        first_seen_at = str(previous.get("first_seen_at") or _utc_now_iso())
+        return {
+            "athlete_id": athlete_id,
+            "first_seen_at": first_seen_at,
+            "updated_at": _utc_now_iso(),
+            "conversation_count": len(conversations),
+            "conversations": conversations,
+        }
+
+    def save_conversation(self, athlete_id: str | int, conversation: dict[str, Any]) -> bool:
+        normalized_athlete_id = str(athlete_id or "").strip()
+        if not normalized_athlete_id:
+            return False
+
+        normalized_conversation = dict(conversation)
+        normalized_conversation.setdefault("created_at", _utc_now_iso())
+
+        if self._client is not None:
+            try:
+                doc_ref = self._client.collection(self._collection).document(normalized_athlete_id)
+                existing_doc = doc_ref.get()
+                existing_payload = existing_doc.to_dict() if existing_doc.exists else {}
+                existing_conversations = existing_payload.get("conversations")
+                if not isinstance(existing_conversations, list):
+                    existing_conversations = []
+
+                existing_conversations.append(normalized_conversation)
+                trimmed = self._trim_conversations([
+                    item for item in existing_conversations if isinstance(item, dict)
+                ])
+                doc_ref.set(
+                    self._build_document_payload(
+                        athlete_id=normalized_athlete_id,
+                        conversations=trimmed,
+                        previous=existing_payload,
+                    )
+                )
+                return True
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to persist agent chain log in Firestore for athlete_id=%s. Falling back to local state.",
+                    normalized_athlete_id,
+                )
+                self._client = None
+
+        local_state = self._load_local_state()
+        athlete_payload = local_state.get(normalized_athlete_id)
+        if not isinstance(athlete_payload, dict):
+            athlete_payload = {}
+
+        existing_conversations = athlete_payload.get("conversations")
+        if not isinstance(existing_conversations, list):
+            existing_conversations = []
+
+        existing_conversations.append(normalized_conversation)
+        trimmed = self._trim_conversations([
+            item for item in existing_conversations if isinstance(item, dict)
+        ])
+
+        local_state[normalized_athlete_id] = self._build_document_payload(
+            athlete_id=normalized_athlete_id,
+            conversations=trimmed,
+            previous=athlete_payload,
+        )
+        self._save_local_state(local_state)
+        return True
+
+    def get_conversations(
+        self,
+        athlete_id: str | int,
+        *,
+        page: int = 1,
+        page_size: int = 5,
+        include_events: bool = False,
+    ) -> dict[str, Any]:
+        normalized_athlete_id = str(athlete_id or "").strip()
+        if not normalized_athlete_id:
+            return {
+                "athlete_id": "",
+                "page": 1,
+                "page_size": max(1, page_size),
+                "total_conversations": 0,
+                "total_pages": 0,
+                "has_next": False,
+                "has_previous": False,
+                "conversations": [],
+            }
+
+        resolved_page = max(1, int(page))
+        resolved_page_size = max(1, min(int(page_size), 50))
+
+        payload = self._get_payload(normalized_athlete_id)
+        raw_conversations = payload.get("conversations")
+        if not isinstance(raw_conversations, list):
+            raw_conversations = []
+
+        valid_conversations = [item for item in raw_conversations if isinstance(item, dict)]
+        ordered_conversations = list(reversed(valid_conversations))
+
+        total_conversations = len(ordered_conversations)
+        total_pages = int(math.ceil(total_conversations / resolved_page_size)) if total_conversations > 0 else 0
+
+        start_index = (resolved_page - 1) * resolved_page_size
+        end_index = start_index + resolved_page_size
+        paged_conversations = ordered_conversations[start_index:end_index]
+
+        normalized_conversations: list[dict[str, Any]] = []
+        for conversation in paged_conversations:
+            conversation_payload = json.loads(json.dumps(conversation, ensure_ascii=False))
+
+            if not include_events:
+                attempts = conversation_payload.get("attempts")
+                if isinstance(attempts, list):
+                    for attempt in attempts:
+                        if isinstance(attempt, dict):
+                            attempt.pop("events", None)
+
+            normalized_conversations.append(conversation_payload)
+
+        return {
+            "athlete_id": normalized_athlete_id,
+            "page": resolved_page,
+            "page_size": resolved_page_size,
+            "total_conversations": total_conversations,
+            "total_pages": total_pages,
+            "has_next": resolved_page < total_pages,
+            "has_previous": resolved_page > 1 and total_pages > 0,
+            "conversations": normalized_conversations,
+        }
+
+
+_AGENT_CHAIN_LOG_STORE = AgentChainLogStore()
+
+
+def get_conversation_chain_logs(
+    athlete_id: str | int,
+    *,
+    page: int = 1,
+    page_size: int = 5,
+    include_events: bool = False,
+) -> dict[str, Any]:
+    return _AGENT_CHAIN_LOG_STORE.get_conversations(
+        athlete_id,
+        page=page,
+        page_size=page_size,
+        include_events=include_events,
+    )
+
+
+def _truncate_for_log(value: str, *, limit: int = _AGENT_CHAIN_LOG_TEXT_LIMIT) -> str:
+    cleaned = str(value or "").strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[:limit]}..."
+
+
+def _stringify_for_log(value: object, *, limit: int = _AGENT_CHAIN_LOG_TEXT_LIMIT) -> str:
+    plain = _to_plain_value(value)
+    if plain is None:
+        return ""
+
+    if isinstance(plain, (dict, list)):
+        try:
+            rendered = json.dumps(plain, ensure_ascii=False)
+        except TypeError:
+            rendered = str(plain)
+        return _truncate_for_log(rendered, limit=limit)
+
+    return _truncate_for_log(str(plain), limit=limit)
+
+
+def _normalize_tool_calls_for_log(tool_calls: list[dict[str, object]]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for call in tool_calls[:_AGENT_CHAIN_LOG_TOOL_CALL_LIMIT]:
+        normalized_call: dict[str, str] = {
+            "tool": _truncate_for_log(str(call.get("tool") or "tool")),
+        }
+        agent_name = _truncate_for_log(str(call.get("agent") or ""))
+        if agent_name:
+            normalized_call["agent"] = agent_name
+
+        args_value = call.get("args")
+        if args_value is not None:
+            rendered_args = _stringify_for_log(args_value)
+            if rendered_args:
+                normalized_call["args"] = rendered_args
+
+        normalized.append(normalized_call)
+    return normalized
+
+
+def _normalize_tool_outputs_for_log(outputs: list[dict[str, str]]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for output in outputs[:_AGENT_CHAIN_LOG_TOOL_CALL_LIMIT]:
+        normalized_output = {
+            "tool": _truncate_for_log(output.get("tool", "tool")),
+            "output": _truncate_for_log(output.get("output", "")),
+        }
+        agent_name = _truncate_for_log(output.get("agent", ""))
+        if agent_name:
+            normalized_output["agent"] = agent_name
+        normalized.append(normalized_output)
+    return normalized
+
+
+def _event_is_final_response(event: object) -> bool:
+    checker = getattr(event, "is_final_response", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _append_agent_to_chain(chain: list[str], value: object) -> None:
+    agent_name = _truncate_for_log(str(_to_plain_value(value) or ""), limit=120)
+    if not agent_name:
+        return
+    if not chain or chain[-1] != agent_name:
+        chain.append(agent_name)
+
+
+def _merge_agent_chain(target: list[str], incoming: list[str]) -> None:
+    for entry in incoming:
+        _append_agent_to_chain(target, entry)
+
+
+def _build_trace_event(
+    *,
+    index: int,
+    event: object,
+    event_tool_calls: list[dict[str, object]],
+) -> dict[str, object]:
+    content = getattr(event, "content", None)
+    author = _truncate_for_log(str(_to_plain_value(getattr(event, "author", None)) or ""), limit=120)
+    text = _truncate_for_log(_extract_text(content))
+    tool_outputs = _normalize_tool_outputs_for_log(_extract_tool_output_events(content, event))
+
+    trace_event: dict[str, object] = {
+        "index": index,
+        "final_response": _event_is_final_response(event),
+    }
+    if author:
+        trace_event["author"] = author
+    if text:
+        trace_event["text"] = text
+    if event_tool_calls:
+        trace_event["tool_calls"] = _normalize_tool_calls_for_log(event_tool_calls)
+    if tool_outputs:
+        trace_event["tool_outputs"] = tool_outputs
+    return trace_event
+
+
+def _create_attempt_trace_context(session_id: str) -> dict[str, object]:
+    return {
+        "session_id": session_id,
+        "events": [],
+        "agent_chain": [],
+        "dropped_events": 0,
+    }
+
+
+def _record_trace_event(
+    trace_context: dict[str, object] | None,
+    *,
+    event: object,
+    event_tool_calls: list[dict[str, object]],
+) -> None:
+    if trace_context is None:
+        return
+
+    events = trace_context.get("events")
+    if not isinstance(events, list):
+        events = []
+        trace_context["events"] = events
+
+    chain = trace_context.get("agent_chain")
+    if not isinstance(chain, list):
+        chain = []
+        trace_context["agent_chain"] = chain
+
+    _append_agent_to_chain(chain, getattr(event, "author", None))
+    for call in event_tool_calls:
+        _append_agent_to_chain(chain, call.get("agent"))
+
+    if len(events) < _AGENT_CHAIN_LOG_EVENT_LIMIT:
+        events.append(
+            _build_trace_event(
+                index=len(events),
+                event=event,
+                event_tool_calls=event_tool_calls,
+            )
+        )
+        return
+
+    trace_context["dropped_events"] = int(trace_context.get("dropped_events") or 0) + 1
+
+
+def _build_attempt_log(
+    *,
+    attempt: int,
+    retry: bool,
+    trace_context: dict[str, object] | None,
+    tool_calls: list[dict[str, object]],
+    response_text: str,
+    succeeded: bool,
+) -> dict[str, object]:
+    events = []
+    chain: list[str] = []
+    dropped_events = 0
+    session_id = ""
+
+    if isinstance(trace_context, dict):
+        raw_events = trace_context.get("events")
+        if isinstance(raw_events, list):
+            events = [item for item in raw_events if isinstance(item, dict)]
+        raw_chain = trace_context.get("agent_chain")
+        if isinstance(raw_chain, list):
+            _merge_agent_chain(chain, [str(item) for item in raw_chain])
+        dropped_events = int(trace_context.get("dropped_events") or 0)
+        session_id = _truncate_for_log(str(trace_context.get("session_id") or ""), limit=120)
+
+    for call in tool_calls:
+        _append_agent_to_chain(chain, call.get("agent"))
+
+    return {
+        "attempt": attempt,
+        "retry": retry,
+        "succeeded": succeeded,
+        "session_id": session_id,
+        "agent_chain": chain,
+        "tool_calls": _normalize_tool_calls_for_log(tool_calls),
+        "events": events,
+        "dropped_events": dropped_events,
+        "response_preview": _truncate_for_log(response_text),
+    }
+
+
+def _build_conversation_log(
+    *,
+    conversation_id: str,
+    question: str,
+    response_text: str,
+    response_format: str | None,
+    stream: bool,
+    attempts: list[dict[str, object]],
+    success: bool,
+) -> dict[str, object]:
+    combined_chain: list[str] = []
+    combined_tool_calls: list[dict[str, str]] = []
+    seen_tool_signatures: set[tuple[str, str, str]] = set()
+
+    for attempt in attempts:
+        attempt_chain = attempt.get("agent_chain")
+        if isinstance(attempt_chain, list):
+            _merge_agent_chain(combined_chain, [str(item) for item in attempt_chain])
+
+        attempt_calls = attempt.get("tool_calls")
+        if isinstance(attempt_calls, list):
+            for call in attempt_calls:
+                if not isinstance(call, dict):
+                    continue
+                signature = (
+                    str(call.get("agent") or ""),
+                    str(call.get("tool") or ""),
+                    str(call.get("args") or ""),
+                )
+                if signature in seen_tool_signatures:
+                    continue
+                seen_tool_signatures.add(signature)
+                combined_tool_calls.append({
+                    "agent": _truncate_for_log(signature[0], limit=120),
+                    "tool": _truncate_for_log(signature[1], limit=120),
+                    "args": _truncate_for_log(signature[2]),
+                })
+
+    now_iso = _utc_now_iso()
+    return {
+        "conversation_id": _truncate_for_log(conversation_id, limit=120),
+        "created_at": now_iso,
+        "response_format": _normalize_response_format(response_format),
+        "stream": bool(stream),
+        "success": bool(success),
+        "attempt_count": len(attempts),
+        "retry_used": len(attempts) > 1,
+        "question_preview": _truncate_for_log(question),
+        "response_preview": _truncate_for_log(response_text),
+        "agent_chain": combined_chain,
+        "tool_calls": combined_tool_calls,
+        "attempts": attempts,
+    }
+
+
+async def _persist_conversation_log(
+    *,
+    athlete_id: str | int | None,
+    payload: dict[str, object],
+) -> None:
+    if athlete_id is None:
+        return
+
+    normalized_athlete_id = str(athlete_id).strip()
+    if not normalized_athlete_id:
+        return
+
+    try:
+        await asyncio.to_thread(
+            _AGENT_CHAIN_LOG_STORE.save_conversation,
+            normalized_athlete_id,
+            payload,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to persist conversation chain log for athlete_id=%s.",
+            normalized_athlete_id,
+        )
 
 
 def _normalize_response_format(response_format: str | None) -> str:
@@ -480,8 +1043,12 @@ async def _run_once(
     session_id: str,
     agent: object,
     response_format: str | None = None,
+    trace_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
     structured_enabled = _structured_output_enabled(response_format)
+
+    if isinstance(trace_context, dict):
+        trace_context["session_id"] = session_id
 
     session_service = InMemorySessionService()
     await session_service.create_session(
@@ -506,7 +1073,13 @@ async def _run_once(
         session_id=session_id,
         new_message=message,
     ):
-        _append_unique_tool_calls(tool_calls, _extract_tool_calls(event.content, event))
+        event_tool_calls = _extract_tool_calls(event.content, event)
+        _append_unique_tool_calls(tool_calls, event_tool_calls)
+        _record_trace_event(
+            trace_context,
+            event=event,
+            event_tool_calls=event_tool_calls,
+        )
 
         if structured_enabled:
             output_events = _extract_tool_output_events(event.content, event)
@@ -594,6 +1167,8 @@ async def run_agent_streaming(
     question: str,
     agent: object,
     response_format: str | None = None,
+    athlete_id: str | int | None = None,
+    conversation_question: str | None = None,
 ):
     """Async generator that yields payload chunks with response/tool_calls."""
     prompt_text = _build_prompt_with_precomputed_context(question)
@@ -601,8 +1176,20 @@ async def run_agent_streaming(
     session1_id = f"session1-{request_id}"
     session2_id = f"session2-{request_id}"
     structured_enabled = _structured_output_enabled(response_format)
+    log_question = (
+        conversation_question
+        if isinstance(conversation_question, str) and conversation_question.strip()
+        else question
+    )
 
-    async def _stream_attempt(message_text: str, session_id: str):
+    async def _stream_attempt(
+        message_text: str,
+        session_id: str,
+        trace_context: dict[str, object] | None = None,
+    ):
+        if isinstance(trace_context, dict):
+            trace_context["session_id"] = session_id
+
         session_service = InMemorySessionService()
         await session_service.create_session(
             app_name=APP_NAME,
@@ -630,8 +1217,15 @@ async def run_agent_streaming(
             payload: dict[str, object] = {}
             structured_blocks: list[dict[str, object]] = []
 
+            event_tool_calls = _extract_tool_calls(event.content, event)
             added_calls = _collect_unique_tool_calls(
-                tool_calls, _extract_tool_calls(event.content, event)
+                tool_calls,
+                event_tool_calls,
+            )
+            _record_trace_event(
+                trace_context,
+                event=event,
+                event_tool_calls=event_tool_calls,
             )
             if added_calls:
                 payload["tool_calls"] = added_calls
@@ -739,13 +1333,49 @@ async def run_agent_streaming(
                     chunk_payload["score"] = payload["score"]
                 yield chunk_payload
 
+        if isinstance(trace_context, dict):
+            trace_context["tool_calls"] = list(tool_calls)
+
+    first_trace_context = _create_attempt_trace_context(session1_id)
+    first_response_chunks: list[str] = []
+    attempts: list[dict[str, object]] = []
+
     got_response = False
-    async for payload in _stream_attempt(prompt_text, session1_id):
-        if str(payload.get("response", "")).strip() or payload.get("structured"):
+    async for payload in _stream_attempt(prompt_text, session1_id, first_trace_context):
+        response_piece = str(payload.get("response", ""))
+        if response_piece:
+            first_response_chunks.append(response_piece)
+
+        if response_piece.strip() or payload.get("structured"):
             got_response = True
         yield payload
 
+    first_response_text = "".join(first_response_chunks).strip()
+    first_tool_calls = first_trace_context.get("tool_calls")
+    attempts.append(
+        _build_attempt_log(
+            attempt=1,
+            retry=False,
+            trace_context=first_trace_context,
+            tool_calls=first_tool_calls if isinstance(first_tool_calls, list) else [],
+            response_text=first_response_text,
+            succeeded=got_response,
+        )
+    )
+
     if got_response:
+        await _persist_conversation_log(
+            athlete_id=athlete_id,
+            payload=_build_conversation_log(
+                conversation_id=request_id,
+                question=log_question,
+                response_text=first_response_text,
+                response_format=response_format,
+                stream=True,
+                attempts=attempts,
+                success=True,
+            ),
+        )
         return
 
     retry_prompt = (
@@ -756,36 +1386,118 @@ async def run_agent_streaming(
         "Solo pregunta si falta un recurso externo (por ejemplo API key)."
     )
 
+    second_trace_context = _create_attempt_trace_context(session2_id)
+    retry_response_chunks: list[str] = []
     retry_got_response = False
-    async for payload in _stream_attempt(retry_prompt, session2_id):
-        if str(payload.get("response", "")).strip() or payload.get("structured"):
+    async for payload in _stream_attempt(retry_prompt, session2_id, second_trace_context):
+        response_piece = str(payload.get("response", ""))
+        if response_piece:
+            retry_response_chunks.append(response_piece)
+
+        if response_piece.strip() or payload.get("structured"):
             retry_got_response = True
         yield payload
 
-    if not retry_got_response:
-        yield {
-            "response": "No se pudo producir una respuesta final en texto. Reintenta la consulta o proporciona mas contexto.",
-            "tool_calls": [],
-        }
+    retry_response_text = "".join(retry_response_chunks).strip()
+    second_tool_calls = second_trace_context.get("tool_calls")
+    attempts.append(
+        _build_attempt_log(
+            attempt=2,
+            retry=True,
+            trace_context=second_trace_context,
+            tool_calls=second_tool_calls if isinstance(second_tool_calls, list) else [],
+            response_text=retry_response_text,
+            succeeded=retry_got_response,
+        )
+    )
+
+    if retry_got_response:
+        await _persist_conversation_log(
+            athlete_id=athlete_id,
+            payload=_build_conversation_log(
+                conversation_id=request_id,
+                question=log_question,
+                response_text=retry_response_text,
+                response_format=response_format,
+                stream=True,
+                attempts=attempts,
+                success=True,
+            ),
+        )
+        return
+
+    fallback_response = "No se pudo producir una respuesta final en texto. Reintenta la consulta o proporciona mas contexto."
+    await _persist_conversation_log(
+        athlete_id=athlete_id,
+        payload=_build_conversation_log(
+            conversation_id=request_id,
+            question=log_question,
+            response_text=fallback_response,
+            response_format=response_format,
+            stream=True,
+            attempts=attempts,
+            success=False,
+        ),
+    )
+    yield {
+        "response": fallback_response,
+        "tool_calls": [],
+    }
 
 
 async def run_agent(
     question: str,
     agent: object,
     response_format: str | None = None,
+    athlete_id: str | int | None = None,
+    conversation_question: str | None = None,
 ) -> dict[str, object]:
     prompt_text = _build_prompt_with_precomputed_context(question)
     request_id = uuid.uuid4().hex
     session1_id = f"session1-{request_id}"
     session2_id = f"session2-{request_id}"
+    log_question = (
+        conversation_question
+        if isinstance(conversation_question, str) and conversation_question.strip()
+        else question
+    )
+    attempts: list[dict[str, object]] = []
+
+    first_trace_context = _create_attempt_trace_context(session1_id)
 
     first_attempt = await _run_once(
         prompt_text,
         session1_id,
         agent,
         response_format=response_format,
+        trace_context=first_trace_context,
     )
-    if str(first_attempt.get("response", "")).strip():
+    first_response = str(first_attempt.get("response", "")).strip()
+    first_tool_calls = first_attempt.get("tool_calls")
+    attempts.append(
+        _build_attempt_log(
+            attempt=1,
+            retry=False,
+            trace_context=first_trace_context,
+            tool_calls=first_tool_calls if isinstance(first_tool_calls, list) else [],
+            response_text=first_response,
+            succeeded=bool(first_response),
+        )
+    )
+
+    if first_response:
+        await _persist_conversation_log(
+            athlete_id=athlete_id,
+            payload=_build_conversation_log(
+                conversation_id=request_id,
+                question=log_question,
+                response_text=first_response,
+                response_format=response_format,
+                stream=False,
+                attempts=attempts,
+                success=True,
+            ),
+        )
         return first_attempt
 
     retry_prompt = (
@@ -795,16 +1507,57 @@ async def run_agent(
         "Debes producir una respuesta final en texto para el usuario, usando answer_agent. "
         "Solo pregunta si falta un recurso externo (por ejemplo API key)."
     )
+
+    second_trace_context = _create_attempt_trace_context(session2_id)
     second_attempt = await _run_once(
         retry_prompt,
         session2_id,
         agent,
         response_format=response_format,
+        trace_context=second_trace_context,
     )
-    if str(second_attempt.get("response", "")).strip():
+    second_response = str(second_attempt.get("response", "")).strip()
+    second_tool_calls = second_attempt.get("tool_calls")
+    attempts.append(
+        _build_attempt_log(
+            attempt=2,
+            retry=True,
+            trace_context=second_trace_context,
+            tool_calls=second_tool_calls if isinstance(second_tool_calls, list) else [],
+            response_text=second_response,
+            succeeded=bool(second_response),
+        )
+    )
+
+    if second_response:
+        await _persist_conversation_log(
+            athlete_id=athlete_id,
+            payload=_build_conversation_log(
+                conversation_id=request_id,
+                question=log_question,
+                response_text=second_response,
+                response_format=response_format,
+                stream=False,
+                attempts=attempts,
+                success=True,
+            ),
+        )
         return second_attempt
 
-    return {
+    fallback_payload = {
         "response": "No se pudo producir una respuesta final en texto. Reintenta la consulta o proporciona mas contexto.",
         "tool_calls": [],
     }
+    await _persist_conversation_log(
+        athlete_id=athlete_id,
+        payload=_build_conversation_log(
+            conversation_id=request_id,
+            question=log_question,
+            response_text=str(fallback_payload.get("response") or ""),
+            response_format=response_format,
+            stream=False,
+            attempts=attempts,
+            success=False,
+        ),
+    )
+    return fallback_payload

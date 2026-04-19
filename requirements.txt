@@ -9,7 +9,7 @@ litellm
 openai
 gunicorn
 google-adk
-google-genai
+google-generativeai
 google-cloud-aiplatform
 gymnasium
 Werkzeug

@@ -4,7 +4,12 @@ import asyncio
 from typing import Any, AsyncIterator
 
 from agent.builder import AgentDefinitionBuilder
-from agent.agents.agent_prompts import AgentPromptStore, WIKI_RESEARCH_CHAT_AGENT_ID
+from agent.agents.agent_prompts import (
+    AgentPromptStore,
+    WIKI_CONTEXT_BLOCK,
+    WIKI_RESEARCH_CHAT_AGENT_ID,
+    render_template,
+)
 from agent.agents.wiki_research_chat_agent import build_wiki_research_chat_agent, read_wiki_content
 from agent.config.config import get_llm_provider
 from agent.runner import run_agent, run_agent_streaming
@@ -65,7 +70,12 @@ class WikiChatService:
             agent_id=agent_id,
         )
 
-        result = await run_agent(prepared["question"], prepared["wiki_agent"])
+        result = await run_agent(
+            prepared["question"],
+            prepared["wiki_agent"],
+            athlete_id=athlete_id,
+            conversation_question=prepared["question"],
+        )
         normalized = _normalize_chat_result(result)
         normalized["athlete_id"] = athlete_id
         return ChatResponse.from_payload(normalized)
@@ -85,7 +95,12 @@ class WikiChatService:
             agent_id=agent_id,
         )
 
-        async for chunk in run_agent_streaming(prepared["question"], prepared["wiki_agent"]):
+        async for chunk in run_agent_streaming(
+            prepared["question"],
+            prepared["wiki_agent"],
+            athlete_id=athlete_id,
+            conversation_question=prepared["question"],
+        ):
             yield chunk
 
     async def _prepare_wiki_agent(
@@ -110,6 +125,30 @@ class WikiChatService:
                 f"wiki_not_found: No se encontro la wiki para el atleta {athlete_id}."
             )
 
+        escaped_wiki = wiki_content.replace("{", "{{").replace("}", "}}")
+        wiki_context_block = render_template(
+            WIKI_CONTEXT_BLOCK,
+            {
+                "%%ATHLETE_ID%%": str(athlete_id),
+                "%%WIKI%%": escaped_wiki,
+            },
+        )
+
+        # Try multi-agent consensus pipeline first (2+ custom agents in TOML)
+        consensus_agent = await asyncio.to_thread(
+            _definition_builder.build_wiki_consensus_agent,
+            athlete_id=athlete_id,
+            wiki_context_block=wiki_context_block,
+            model_name=model_name,
+        )
+
+        if consensus_agent is not None:
+            return {
+                "question": normalized_question,
+                "wiki_agent": consensus_agent,
+            }
+
+        # Single-agent fallback: resolve one instruction template
         selected_model = get_llm_provider(model_name=model_name)
 
         instruction_template = await asyncio.to_thread(

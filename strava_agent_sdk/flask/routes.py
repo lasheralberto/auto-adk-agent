@@ -553,6 +553,32 @@ def register_routes(
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": "Wiki chat agent setup failed.", "details": str(exc)}), 500
 
+    @app_get("/agent-definition-logs/<athlete_id>")
+    def get_agent_definition_logs_endpoint(athlete_id: str) -> tuple[dict[str, Any], int]:
+        parsed_athlete_id = sdk_client.to_optional_int(athlete_id.strip())
+        if parsed_athlete_id is None or parsed_athlete_id <= 0:
+            return {"error": "Path param 'athlete_id' is required."}, 400
+
+        page = max(1, sdk_client.to_int(request.args.get("page"), 1))
+        page_size = max(1, min(sdk_client.to_int(request.args.get("page_size"), 5), 50))
+
+        include_events_raw = request.args.get("include_events", "false")
+        include_events = str(include_events_raw).strip().lower() in {"1", "true", "yes", "on"}
+
+        try:
+            payload = asyncio.run(sdk_client.get_agent_chain_logs(
+                athlete_id=int(parsed_athlete_id),
+                page=page,
+                page_size=page_size,
+                include_events=include_events,
+            ))
+            return payload, 200
+        except ValidationError as exc:
+            return {"error": str(exc)}, 400
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("get_agent_definition_logs failed for athlete %s", parsed_athlete_id)
+            return {"error": "Failed to fetch agent definition logs.", "details": str(exc)}, 500
+
     @app_get("/agents")
     def list_agents_endpoint() -> tuple[dict[str, Any], int]:
         if not sdk_client.internal_request_authorized(headers=request.headers):
