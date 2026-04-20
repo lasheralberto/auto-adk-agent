@@ -16,7 +16,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 
 from agent.config.config import get_wiki_llm_model
 from agent.config.envars import get_secret
@@ -41,18 +41,20 @@ def _call_llm(
         or (get_secret("GOOGLE_API_KEY", "") or "").strip()
     )
 
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
-    generation_config = {"temperature": 0.3}
+    generation_config: dict = {"temperature": 0.3}
     if json_mode:
         generation_config["response_mime_type"] = "application/json"
 
-    model = genai.GenerativeModel(
-        model_name=model_name,
-        system_instruction=system,
-        generation_config=generation_config,
+    response = client.models.generate_content(
+        model=model_name,
+        contents=user,
+        config={
+            "system_instruction": system,
+            **generation_config,
+        },
     )
-    response = model.generate_content(user)
     return response.text or ""
 
 

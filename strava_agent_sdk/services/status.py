@@ -124,15 +124,18 @@ class StatusService:
 
         def _run() -> dict[str, Any]:
             state_store = AthleteStateStore()
+            # Fetch all indexed activities for the athlete so the Python-side
+            # sort+slice returns the correct newest N, not N arbitrary docs.
+            fetch_limit = 500
             success_runs = state_store.list_activity_runs_by_status(
                 "success",
                 athlete_id=athlete_id,
-                limit=resolved_limit,
+                limit=fetch_limit,
             )
             partial_runs = state_store.list_activity_runs_by_status(
                 "partial_success",
                 athlete_id=athlete_id,
-                limit=resolved_limit,
+                limit=fetch_limit,
             )
 
             merged: dict[Any, dict[str, Any]] = {}

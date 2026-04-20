@@ -886,12 +886,15 @@ def _build_consensus_finalizer_instruction(
 
     return (
         "Eres el sintetizador final de consenso para el atleta.\n"
-        f"Recibes los aportes despues de {total_rounds} rondas de iteracion.\n"
-        "Integra los aportes y produce una sola respuesta final.\n"
-        "Si hay desacuerdos, explicalos y elige la mejor recomendacion.\n"
-        "Aportes de agentes por output_key:\n"
-        f"{participant_block}\n"
-        "Entrega una respuesta final clara, accionable y breve en espanol."
+        f"Recibes los aportes despues de {total_rounds} rondas de iteracion de los siguientes agentes:\n"
+        f"{participant_block}\n\n"
+        "ESTRUCTURA OBLIGATORIA de tu respuesta:\n"
+        "1. **Perspectivas de los agentes**: Resume brevemente lo que aportó cada agente (1-2 frases por agente, "
+        "usa el nombre del agente como encabezado). Si dos agentes coinciden en algo, señálalo. "
+        "Si hay diferencias o énfasis distintos, menciónalos.\n"
+        "2. **Recomendación final**: Integra los aportes en una respuesta clara, accionable y personalizada. "
+        "Si hay desacuerdos, explica cuál es la mejor opción y por qué.\n\n"
+        "Responde en español. No inventes datos que no estén en los aportes."
     )
 
 
@@ -1257,6 +1260,20 @@ class AgentDefinitionBuilder:
                 candidate = str(agent.get("prompt") or "").strip()
                 if candidate:
                     return candidate
+
+            # Fall back to first non-reserved agent in the TOML definition.
+            # This handles the single-agent case where the user defined one custom
+            # agent — its prompt should influence the wiki chat response.
+            for agent in normalized.get("agents", []):
+                if not isinstance(agent, dict):
+                    continue
+                agent_id_in_toml = str(agent.get("id") or "").strip()
+                if agent_id_in_toml in RESERVED_AGENT_IDS:
+                    continue
+                candidate = str(agent.get("prompt") or "").strip()
+                if candidate:
+                    return candidate
+
             return None
         except Exception:  # noqa: BLE001
             return None
