@@ -15,14 +15,17 @@ _SKILLS_DIR = pathlib.Path(__file__).parent.parent / "skills"
 # propagar el cambio a todas las etapas del pipeline y a los agentes de chat.
 
 # Modelo para el agente principal (chat, planner, sub-agentes ADK).
+# En chat, el modelo llega por payload desde el frontend — este valor actúa
+# solo como fallback cuando no se recibe model_name en la request.
 AGENT_LLM_MODEL: str = (
-    get_setting("AGENT_LLM_MODEL", "") 
+    get_setting("AGENT_LLM_MODEL", "")
 ).strip()
 
 # Modelo para el pipeline de wiki (triage, bootstrap, update por página,
 # regenerado de _index). Se invoca vía litellm.completion().
+# Unificado con AGENT_LLM_MODEL: si no se define por separado, usa el mismo.
 WIKI_LLM_MODEL: str = (
-    get_setting("WIKI_LLM_MODEL", "")  
+    get_setting("WIKI_LLM_MODEL", "") or AGENT_LLM_MODEL
 ).strip()
 
 # Modelo de embeddings usado para el índice vectorial de la wiki en Pinecone.

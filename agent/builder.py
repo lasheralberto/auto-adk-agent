@@ -853,11 +853,19 @@ def _build_consensus_participant_instruction(
     total_rounds: int,
 ) -> str:
     base_prompt = _resolve_consensus_participant_prompt(cfg)
-    shared_state_lines = []
-    for participant in participants:
-        key = output_keys_by_agent[participant.agent_id]
-        shared_state_lines.append(f"- {participant.agent_id} ({key}): {{{key}}}")
-    shared_state_block = "\n".join(shared_state_lines)
+
+    # In round 1 no agent has run yet, so no output keys exist in session state.
+    # Using {key} template vars when the key is absent causes ADK to raise
+    # "Context variable not found: <key>".  Only inject live references from
+    # round 2 onward, when all participants have already written their outputs.
+    if round_index > 1:
+        shared_state_lines = []
+        for participant in participants:
+            key = output_keys_by_agent[participant.agent_id]
+            shared_state_lines.append(f"- {participant.agent_id} ({key}): {{{key}}}")
+        shared_state_block = "\n".join(shared_state_lines)
+    else:
+        shared_state_block = "(Sin aportaciones previas — primera ronda)"
 
     return (
         f"{base_prompt}\n\n"
@@ -1374,9 +1382,12 @@ class AgentDefinitionBuilder:
             name="wiki_multi_agent",
             model=default_model,
             instruction=(
-                "Ejecuta el pipeline de consenso multi-agente para responder "
-                "la pregunta del usuario usando la wiki del atleta. "
-                "Delega al wiki_consensus_pipeline y devuelve su respuesta final."
+                "Eres el coordinador del consenso multi-agente para el atleta.\n"
+                "REGLA ABSOLUTA: ante CUALQUIER mensaje del usuario — saludo, pregunta deportiva, "
+                "solicitud de entrenamiento, consulta sobre rendimiento o cualquier otro tema — "
+                "SIEMPRE debes invocar wiki_consensus_pipeline sin excepcion.\n"
+                "Nunca rechaces una pregunta ni respondas directamente sin invocar primero wiki_consensus_pipeline.\n"
+                "Tras obtener el resultado del pipeline, devuelve su respuesta final al usuario en texto claro en espanol."
             ),
             tools=[AgentTool(agent=consensus_pipeline)],
         )

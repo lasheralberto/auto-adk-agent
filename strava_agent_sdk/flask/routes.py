@@ -758,6 +758,50 @@ def register_routes(
         except Exception as exc:  # noqa: BLE001
             return {"error": "Failed to validate agent definition.", "details": str(exc)}, 500
 
+    @app_get("/v1/ask")
+    def public_ask_endpoint() -> Response | tuple[dict[str, Any], int]:
+        """Public-facing GET endpoint — same result as /chat, no internal token required."""
+        question = (request.args.get("question") or request.args.get("message") or "").strip()
+        strava_athlete_id = sdk_client.to_optional_int(
+            request.args.get("strava_athlete_id") or request.args.get("athlete_id")
+        )
+
+        if not question:
+            return {"error": "Query param 'question' or 'message' is required."}, 400
+        if strava_athlete_id is None or strava_athlete_id <= 0:
+            return {"error": "Query param 'strava_athlete_id' or 'athlete_id' is required."}, 400
+
+        auth_header = request.headers.get("Authorization", "")
+        strava_access_token = ""
+        if auth_header.lower().startswith("bearer "):
+            strava_access_token = auth_header[7:].strip()
+
+        model_raw = request.args.get("model") or ""
+        model_name_to_use = model_raw.strip() if model_raw.strip() else None
+        top_k = max(1, min(sdk_client.to_int(request.args.get("top_k"), 5), 20))
+        target_date = (request.args.get("target_date") or "").strip()
+
+        try:
+            result = asyncio.run(sdk_client.chat(
+                question=question,
+                athlete_id=int(strava_athlete_id),
+                model_name=model_name_to_use,
+                top_k=top_k,
+                target_date=target_date,
+                access_token=strava_access_token,
+                response_format=None,
+                planner_mode=False,
+            ))
+            return jsonify(result.to_payload())
+        except ValidationError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except ExternalServiceError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except SDKError as exc:
+            return jsonify({"error": str(exc)}), 500
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": "Public ask failed.", "details": str(exc)}), 500
+
     @app_route("/vector_stores", methods=["GET", "POST", "DELETE"])
     @app_post("/add_to_vs")
     @app_post("/strava/weekly-summary")

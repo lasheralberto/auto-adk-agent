@@ -115,16 +115,20 @@ def build_wiki_research_chat_agent(
     if instruction_template is None:
         instruction_template = AgentPromptStore().get_template(WIKI_RESEARCH_CHAT_AGENT_ID)
 
-    # Always inject wiki context block — user templates are pure instructions,
-    # they never reference %%ATHLETE_ID%% or %%WIKI%% manually.
-    context_block = render_template(
-        WIKI_CONTEXT_BLOCK,
-        {
-            "%%ATHLETE_ID%%": str(athlete_id),
-            "%%WIKI%%": escaped_wiki,
-        },
-    )
-    instruction = context_block + instruction_template
+    render_values = {
+        "%%ATHLETE_ID%%": str(athlete_id),
+        "%%WIKI%%": escaped_wiki,
+    }
+
+    # If the template already embeds %%WIKI%% (self-contained prompt), render
+    # its placeholders directly without prepending the shared context block —
+    # which would duplicate the wiki content.  Otherwise use the standard path:
+    # prepend WIKI_CONTEXT_BLOCK so the agent always gets athlete context.
+    if "%%WIKI%%" in instruction_template:
+        instruction = render_template(instruction_template, render_values)
+    else:
+        context_block = render_template(WIKI_CONTEXT_BLOCK, render_values)
+        instruction = context_block + instruction_template
 
     return LlmAgent(
         name="wiki_research_chat_agent",
