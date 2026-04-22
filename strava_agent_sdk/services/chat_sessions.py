@@ -90,12 +90,7 @@ class ChatSessionsService:
         if self._client is not None:
             # Upsert parent chats/{athleteId} document
             self._athlete_doc_ref(athlete_id).set(
-                {"athleteId": athlete_id, "updatedAt": now},
-                merge=True,
-            )
-            # Set createdAt only on first write
-            self._athlete_doc_ref(athlete_id).set(
-                {"createdAt": now},
+                {"athleteId": athlete_id, "createdAt": now, "updatedAt": now},
                 merge=True,
             )
 
@@ -177,14 +172,11 @@ class ChatSessionsService:
         if self._client is None:
             return {"deleted": True}
 
-        # Batch-delete all messages first
+        # Batch-delete all messages and the session document atomically
         batch = self._client.batch()
         msg_docs = list(self._messages_ref(athlete_id, session_id).stream())
         for doc in msg_docs:
             batch.delete(doc.reference)
-        if msg_docs:
-            batch.commit()
-
-        # Delete session document
-        self._session_ref(athlete_id, session_id).delete()
+        batch.delete(self._session_ref(athlete_id, session_id))
+        batch.commit()
         return {"deleted": True}
