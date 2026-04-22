@@ -2,6 +2,7 @@ from .agent_definition import AgentDefinitionService
 from .agents import AgentsService
 from .auth import AuthService
 from .chat import ChatService
+from .chat_sessions import ChatSessionsService
 from .pipeline import PipelineService
 from .secrets import SecretsService
 from .status import StatusService
@@ -12,6 +13,7 @@ __all__ = [
     "AgentsService",
     "AuthService",
     "ChatService",
+    "ChatSessionsService",
     "PipelineService",
     "SecretsService",
     "StatusService",

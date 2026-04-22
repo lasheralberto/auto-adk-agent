@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
@@ -15,6 +16,7 @@ from strava_agent_sdk.services import (
     AgentsService,
     AuthService,
     ChatService,
+    ChatSessionsService,
     PipelineService,
     SecretsService,
     StatusService,
@@ -40,6 +42,7 @@ class StravaAgentClient:
         secrets_service: SecretsService | None = None,
         agents_service: AgentsService | None = None,
         agent_definition_service: AgentDefinitionService | None = None,
+        chat_sessions_service: ChatSessionsService | None = None,
         gcp_project_id: str | None = None,
         gcp_credentials_path: str | None = None,
     ) -> None:
@@ -51,6 +54,7 @@ class StravaAgentClient:
         self.wiki_chat_service = wiki_chat_service or WikiChatService()
         self.agents = agents_service or AgentsService()
         self.agent_definition = agent_definition_service or AgentDefinitionService()
+        self.chat_sessions = chat_sessions_service or ChatSessionsService()
         self.secrets = secrets_service or SecretsService(
             project_id=gcp_project_id,
             credentials_path=gcp_credentials_path,
@@ -555,6 +559,71 @@ class StravaAgentClient:
 
     async def validate_agent_definition(self, *, toml_content: str) -> dict[str, Any]:
         return await self.agent_definition.validate_definition(toml_content)
+
+    async def list_chat_sessions(self, *, athlete_id: int) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.chat_sessions.list_sessions, athlete_id=athlete_id
+        )
+
+    async def create_chat_session(
+        self, *, athlete_id: int, session_id: str, title: str
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.chat_sessions.create_session,
+            athlete_id=athlete_id,
+            session_id=session_id,
+            title=title,
+        )
+
+    async def get_chat_session_messages(
+        self, *, athlete_id: int, session_id: str
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.chat_sessions.get_messages,
+            athlete_id=athlete_id,
+            session_id=session_id,
+        )
+
+    async def add_chat_message(
+        self,
+        *,
+        athlete_id: int,
+        session_id: str,
+        message_id: str,
+        role: str,
+        content: str,
+        tag: str,
+        structured: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.chat_sessions.add_message,
+            athlete_id=athlete_id,
+            session_id=session_id,
+            message_id=message_id,
+            role=role,
+            content=content,
+            tag=tag,
+            structured=structured,
+        )
+
+    async def update_chat_session(
+        self, *, athlete_id: int, session_id: str, title: str | None = None
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.chat_sessions.update_session,
+            athlete_id=athlete_id,
+            session_id=session_id,
+            title=title,
+        )
+
+    async def delete_chat_session(
+        self, *, athlete_id: int, session_id: str
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.chat_sessions.delete_session,
+            athlete_id=athlete_id,
+            session_id=session_id,
+        )
 
     def get_secret(
         self,

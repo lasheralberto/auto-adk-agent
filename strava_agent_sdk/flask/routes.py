@@ -802,6 +802,107 @@ def register_routes(
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": "Public ask failed.", "details": str(exc)}), 500
 
+    @app_get("/chat/sessions")
+    def list_chat_sessions_endpoint() -> tuple[dict[str, Any], int]:
+        athlete_id = sdk_client.to_optional_int(request.args.get("athlete_id"))
+        if athlete_id is None or athlete_id <= 0:
+            return {"error": "Query param 'athlete_id' is required."}, 400
+        try:
+            return asyncio.run(sdk_client.list_chat_sessions(athlete_id=athlete_id)), 200
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to list sessions.", "details": str(exc)}, 500
+
+    @app_post("/chat/sessions")
+    def create_chat_session_endpoint() -> tuple[dict[str, Any], int]:
+        data = request.get_json(silent=True) or {}
+        athlete_id = sdk_client.to_optional_int(data.get("athlete_id"))
+        session_id = (data.get("session_id") or "").strip()
+        title = (data.get("title") or "").strip()
+        if athlete_id is None or athlete_id <= 0:
+            return {"error": "Field 'athlete_id' is required."}, 400
+        if not session_id:
+            return {"error": "Field 'session_id' is required."}, 400
+        if not title:
+            return {"error": "Field 'title' is required."}, 400
+        try:
+            return asyncio.run(sdk_client.create_chat_session(
+                athlete_id=athlete_id, session_id=session_id, title=title
+            )), 201
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to create session.", "details": str(exc)}, 500
+
+    @app_get("/chat/sessions/<session_id>/messages")
+    def get_chat_session_messages_endpoint(session_id: str) -> tuple[dict[str, Any], int]:
+        athlete_id = sdk_client.to_optional_int(request.args.get("athlete_id"))
+        if athlete_id is None or athlete_id <= 0:
+            return {"error": "Query param 'athlete_id' is required."}, 400
+        if not session_id.strip():
+            return {"error": "session_id is required."}, 400
+        try:
+            return asyncio.run(sdk_client.get_chat_session_messages(
+                athlete_id=athlete_id, session_id=session_id.strip()
+            )), 200
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to get messages.", "details": str(exc)}, 500
+
+    @app_post("/chat/sessions/<session_id>/messages")
+    def add_chat_message_endpoint(session_id: str) -> tuple[dict[str, Any], int]:
+        data = request.get_json(silent=True) or {}
+        athlete_id = sdk_client.to_optional_int(data.get("athlete_id"))
+        message_id = (data.get("message_id") or "").strip()
+        role = (data.get("role") or "").strip()
+        content = (data.get("content") or "").strip()
+        tag = (data.get("tag") or "").strip()
+        structured = data.get("structured") if isinstance(data.get("structured"), dict) else None
+
+        if athlete_id is None or athlete_id <= 0:
+            return {"error": "Field 'athlete_id' is required."}, 400
+        if not message_id:
+            return {"error": "Field 'message_id' is required."}, 400
+        if role not in {"user", "assistant"}:
+            return {"error": "Field 'role' must be 'user' or 'assistant'."}, 400
+        if not content:
+            return {"error": "Field 'content' is required."}, 400
+        try:
+            return asyncio.run(sdk_client.add_chat_message(
+                athlete_id=athlete_id,
+                session_id=session_id.strip(),
+                message_id=message_id,
+                role=role,
+                content=content,
+                tag=tag,
+                structured=structured,
+            )), 201
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to add message.", "details": str(exc)}, 500
+
+    @app_route("/chat/sessions/<session_id>", methods=["PATCH"])
+    def update_chat_session_endpoint(session_id: str) -> tuple[dict[str, Any], int]:
+        data = request.get_json(silent=True) or {}
+        athlete_id = sdk_client.to_optional_int(data.get("athlete_id"))
+        title_raw = data.get("title")
+        title = title_raw.strip() if isinstance(title_raw, str) and title_raw.strip() else None
+        if athlete_id is None or athlete_id <= 0:
+            return {"error": "Field 'athlete_id' is required."}, 400
+        try:
+            return asyncio.run(sdk_client.update_chat_session(
+                athlete_id=athlete_id, session_id=session_id.strip(), title=title
+            )), 200
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to update session.", "details": str(exc)}, 500
+
+    @app_delete("/chat/sessions/<session_id>")
+    def delete_chat_session_endpoint(session_id: str) -> tuple[dict[str, Any], int]:
+        athlete_id = sdk_client.to_optional_int(request.args.get("athlete_id"))
+        if athlete_id is None or athlete_id <= 0:
+            return {"error": "Query param 'athlete_id' is required."}, 400
+        try:
+            return asyncio.run(sdk_client.delete_chat_session(
+                athlete_id=athlete_id, session_id=session_id.strip()
+            )), 200
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "Failed to delete session.", "details": str(exc)}, 500
+
     @app_route("/vector_stores", methods=["GET", "POST", "DELETE"])
     @app_post("/add_to_vs")
     @app_post("/strava/weekly-summary")
