@@ -74,6 +74,7 @@ def register_routes(
     app_post = _make_filtered_decorator(app.post, route_filter)
     app_put = _make_filtered_decorator(app.put, route_filter)
     app_delete = _make_filtered_decorator(app.delete, route_filter)
+    app_patch = _make_filtered_decorator(app.patch, route_filter)
     app_route = _make_filtered_decorator(app.route, route_filter)
 
     @app_get("/health")
@@ -836,8 +837,6 @@ def register_routes(
         athlete_id = sdk_client.to_optional_int(request.args.get("athlete_id"))
         if athlete_id is None or athlete_id <= 0:
             return {"error": "Query param 'athlete_id' is required."}, 400
-        if not session_id.strip():
-            return {"error": "session_id is required."}, 400
         try:
             return asyncio.run(sdk_client.get_chat_session_messages(
                 athlete_id=athlete_id, session_id=session_id.strip()
@@ -876,7 +875,7 @@ def register_routes(
         except Exception as exc:  # noqa: BLE001
             return {"error": "Failed to add message.", "details": str(exc)}, 500
 
-    @app_route("/chat/sessions/<session_id>", methods=["PATCH"])
+    @app_patch("/chat/sessions/<session_id>")
     def update_chat_session_endpoint(session_id: str) -> tuple[dict[str, Any], int]:
         data = request.get_json(silent=True) or {}
         athlete_id = sdk_client.to_optional_int(data.get("athlete_id"))
@@ -884,6 +883,8 @@ def register_routes(
         title = title_raw.strip() if isinstance(title_raw, str) and title_raw.strip() else None
         if athlete_id is None or athlete_id <= 0:
             return {"error": "Field 'athlete_id' is required."}, 400
+        if title is None:
+            return {"error": "At least one field to update ('title') must be provided."}, 400
         try:
             return asyncio.run(sdk_client.update_chat_session(
                 athlete_id=athlete_id, session_id=session_id.strip(), title=title
