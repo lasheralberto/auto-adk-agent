@@ -114,3 +114,20 @@ class StravaConnector(DataConnector):
         if not isinstance(payload, list):
             return []
         return [activity for activity in payload if isinstance(activity, dict)]
+
+    def fetch_activity_detail(self, athlete_id: int, activity_id: int) -> dict[str, Any] | None:
+        athlete = self._state_store.get_athlete(athlete_id)
+        if not athlete:
+            return None
+        access_token = str(athlete.get("access_token") or "").strip()
+        if not access_token:
+            return None
+        try:
+            detail = _strava_get(
+                access_token,
+                f"/activities/{activity_id}",
+                params={"include_all_efforts": True},
+            )
+            return detail if isinstance(detail, dict) else None
+        except requests.RequestException:
+            return None
