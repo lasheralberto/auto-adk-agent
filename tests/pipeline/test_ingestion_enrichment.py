@@ -192,3 +192,68 @@ def test_build_activity_firestore_payload_omits_missing_new_fields():
                   "location_country", "start_latlng", "end_latlng", "total_photo_count",
                   "splits_metric", "segment_efforts", "laps"):
         assert field not in payload, f"Unexpected field: {field}"
+
+
+from agent.tools.pipeline.workflow import _build_research_record_from_activity_payload
+
+
+def test_build_research_record_includes_new_scalar_fields():
+    activity_payload = {
+        "activity_id": 300,
+        "athlete_id": 9,
+        "name": "Long Ride",
+        "sport_type": "Ride",
+        "calories": 2100,
+        "suffer_score": 130,
+        "weighted_average_watts": 205,
+        "max_watts": 510,
+        "average_cadence": 90.1,
+        "description": "Epic day",
+        "location_city": "Girona",
+        "location_state": "Catalonia",
+        "location_country": "Spain",
+        "start_latlng": [41.9794, 2.8214],
+        "end_latlng": [41.9800, 2.8220],
+        "total_photo_count": 5,
+    }
+    record = _build_research_record_from_activity_payload(activity_payload, athlete_id=9)
+
+    assert record["calories"] == 2100
+    assert record["suffer_score"] == 130
+    assert record["weighted_average_watts"] == 205
+    assert record["max_watts"] == 510
+    assert record["average_cadence"] == 90.1
+    assert record["description"] == "Epic day"
+    assert record["location_city"] == "Girona"
+    assert record["location_state"] == "Catalonia"
+    assert record["location_country"] == "Spain"
+    assert record["start_latlng"] == [41.9794, 2.8214]
+    assert record["end_latlng"] == [41.9800, 2.8220]
+    assert record["total_photo_count"] == 5
+
+
+def test_build_research_record_includes_structured_arrays():
+    activity_payload = {
+        "activity_id": 301,
+        "name": "Intervals",
+        "sport_type": "Run",
+        "splits_metric": [{"distance": 1000.0, "elapsed_time": 180, "pace_zone": 4}],
+        "segment_efforts": [{"name": "Sprint", "elapsed_time": 30, "kom_rank": 3, "pr_rank": 1, "average_watts": 800}],
+        "laps": [{"index": 1, "elapsed_time": 600, "average_heartrate": 175, "average_watts": 350}],
+    }
+    record = _build_research_record_from_activity_payload(activity_payload, athlete_id=9)
+
+    assert record["splits_metric"] == activity_payload["splits_metric"]
+    assert record["segment_efforts"] == activity_payload["segment_efforts"]
+    assert record["laps"] == activity_payload["laps"]
+
+
+def test_build_research_record_omits_missing_new_fields():
+    activity_payload = {"activity_id": 302, "name": "Rest Ride", "sport_type": "Ride"}
+    record = _build_research_record_from_activity_payload(activity_payload, athlete_id=9)
+
+    for field in ("calories", "suffer_score", "weighted_average_watts", "max_watts",
+                  "average_cadence", "description", "location_city", "location_state",
+                  "location_country", "start_latlng", "end_latlng", "total_photo_count",
+                  "splits_metric", "segment_efforts", "laps"):
+        assert field not in record, f"Unexpected field: {field}"

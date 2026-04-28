@@ -356,6 +356,22 @@ def _build_research_record_from_activity_payload(
         "kilojoules", "has_heartrate", "average_heartrate", "max_heartrate",
         "elev_high", "elev_low", "pr_count", "achievement_count", "kudos_count",
         "athlete_count", "gear_id", "trainer", "commute", "manual",
+        # enriched from detail endpoint
+        "calories",
+        "suffer_score",
+        "weighted_average_watts",
+        "max_watts",
+        "average_cadence",
+        "description",
+        "location_city",
+        "location_state",
+        "location_country",
+        "start_latlng",
+        "end_latlng",
+        "total_photo_count",
+        "splits_metric",
+        "segment_efforts",
+        "laps",
     ]
     for field in flat_fields:
         value = activity_payload.get(field)
