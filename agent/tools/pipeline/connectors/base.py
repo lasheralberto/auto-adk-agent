@@ -48,3 +48,7 @@ class DataConnector(ABC):
         actividades en el formato nativo del servicio.
         """
         ...
+
+    def fetch_activity_detail(self, athlete_id: int, activity_id: int) -> dict[str, Any] | None:
+        """Returns full activity detail or None if unsupported by this connector."""
+        return None
