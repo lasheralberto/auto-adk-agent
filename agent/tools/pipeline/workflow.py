@@ -147,6 +147,22 @@ def _build_activity_firestore_payload(
         "trainer",
         "commute",
         "manual",
+        # enriched from detail endpoint
+        "calories",
+        "suffer_score",
+        "weighted_average_watts",
+        "max_watts",
+        "average_cadence",
+        "description",
+        "location_city",
+        "location_state",
+        "location_country",
+        "start_latlng",
+        "end_latlng",
+        "total_photo_count",
+        "splits_metric",
+        "segment_efforts",
+        "laps",
     ]
     for field in flat_fields:
         value = activity.get(field)

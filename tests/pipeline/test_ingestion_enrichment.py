@@ -128,3 +128,67 @@ def test_run_ingestion_skips_detail_for_existing_activities():
 
     connector.fetch_activity_detail.assert_not_called()
     artifact_store.write_text.assert_not_called()
+
+
+from agent.tools.pipeline.workflow import _build_activity_firestore_payload
+
+
+def test_build_activity_firestore_payload_includes_new_scalar_fields():
+    activity = {
+        "id": 200,
+        "name": "Evening Run",
+        "sport_type": "Run",
+        "distance": 10000.0,
+        "moving_time": 3000,
+        "elapsed_time": 3100,
+        "calories": 620,
+        "suffer_score": 45,
+        "weighted_average_watts": 0,
+        "max_watts": 0,
+        "average_cadence": 82.3,
+        "description": "Tempo effort",
+        "location_city": "Seville",
+        "location_state": "Andalusia",
+        "location_country": "Spain",
+        "start_latlng": [37.3891, -5.9845],
+        "end_latlng": [37.3920, -5.9800],
+        "total_photo_count": 0,
+    }
+    payload = _build_activity_firestore_payload(activity, athlete_id=7)
+
+    assert payload["calories"] == 620
+    assert payload["suffer_score"] == 45
+    assert payload["average_cadence"] == 82.3
+    assert payload["description"] == "Tempo effort"
+    assert payload["location_city"] == "Seville"
+    assert payload["location_state"] == "Andalusia"
+    assert payload["location_country"] == "Spain"
+    assert payload["start_latlng"] == [37.3891, -5.9845]
+    assert payload["end_latlng"] == [37.3920, -5.9800]
+    assert payload["total_photo_count"] == 0
+
+
+def test_build_activity_firestore_payload_includes_structured_arrays():
+    activity = {
+        "id": 201,
+        "splits_metric": [{"distance": 1000.0, "elapsed_time": 300, "average_heartrate": 155}],
+        "segment_efforts": [{"name": "Col du Tourmalet", "elapsed_time": 7200, "pr_rank": 1}],
+        "laps": [{"index": 1, "elapsed_time": 1800, "average_watts": 220}],
+    }
+    payload = _build_activity_firestore_payload(activity, athlete_id=7)
+
+    assert payload["splits_metric"] == activity["splits_metric"]
+    assert payload["segment_efforts"] == activity["segment_efforts"]
+    assert payload["laps"] == activity["laps"]
+
+
+def test_build_activity_firestore_payload_omits_missing_new_fields():
+    """Fields absent from activity dict must not appear in payload."""
+    activity = {"id": 202, "name": "Easy Ride", "sport_type": "Ride"}
+    payload = _build_activity_firestore_payload(activity, athlete_id=7)
+
+    for field in ("calories", "suffer_score", "weighted_average_watts", "max_watts",
+                  "average_cadence", "description", "location_city", "location_state",
+                  "location_country", "start_latlng", "end_latlng", "total_photo_count",
+                  "splits_metric", "segment_efforts", "laps"):
+        assert field not in payload, f"Unexpected field: {field}"
