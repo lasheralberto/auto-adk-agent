@@ -16,10 +16,14 @@ from .wiki_llm import (
     generate_index,
     triage_activity,
     update_page,
+    update_page_with_graph,
 )
 from .wiki_pages import PAGE_SLUGS
+from .knowledge_graph import extract_graph as _extract_graph_from_content
+from .wiki_vector_index import index_graph_page as _vector_index_graph_page
 from .wiki_vector_index import index_page as _vector_index_page
 from .wiki_vector_index import index_pages as _vector_index_pages
+from .wiki_vector_index import retrieve_graph_context as _retrieve_graph_context
 
 _RESEARCH_INPUT_PREFIX = "pipeline/research-wiki-input"
 _LATEST_ACTIVITIES_LIMIT = 10
@@ -240,6 +244,11 @@ def run_ingestion(
                     athlete_report["skipped_existing"] += 1
                     continue
 
+                # Fetch full detail and merge over summary (detail wins on conflict).
+                detail = connector.fetch_activity_detail(athlete_id, activity_id)
+                if isinstance(detail, dict):
+                    activity = {**activity, **detail}
+
                 # 1. Write the activity blob: filename = activity id, content =
                 #    full Strava activity payload serialized as JSON.
                 blob_path = f"{_RESEARCH_INPUT_PREFIX}/{activity_id_str}"
@@ -411,6 +420,30 @@ def _read_wiki_page(artifact_store: ArtifactStore, athlete_id: int, slug: str) -
 
 def _write_wiki_page(artifact_store: ArtifactStore, athlete_id: int, slug: str, content: str) -> str:
     return artifact_store.write_text(f"wiki/{athlete_id}/{slug}.md", content)
+
+
+def _extract_and_index_graph(
+    artifact_store: ArtifactStore,
+    athlete_id: int,
+    slug: str,
+    content: str,
+) -> None:
+    import sys
+    try:
+        graph = _extract_graph_from_content(athlete_id=athlete_id, slug=slug, content=content)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[KG] extraction failed for {athlete_id}/{slug}: {exc}", file=sys.stderr)
+        return
+    graph_path = f"graph/{athlete_id}/{slug}.json"
+    try:
+        artifact_store.write_json(graph_path, graph)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[KG] GCS write failed for {athlete_id}/{slug}: {exc}", file=sys.stderr)
+        return
+    try:
+        _vector_index_graph_page(athlete_id, slug, graph)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[KG] Pinecone index failed for {athlete_id}/{slug}: {exc}", file=sys.stderr)
 
 
 def _read_all_wiki_pages(artifact_store: ArtifactStore, athlete_id: int) -> dict[str, str]:
@@ -587,6 +620,9 @@ def research_wiki_pipeline(
                     athlete_id,
                     {s: c for s, c in pages.items() if not s.startswith("_")},
                 )
+                for s, c in pages.items():
+                    if not s.startswith("_"):
+                        _extract_and_index_graph(artifact_store, athlete_id, s, c)
             else:
                 # Incremental: triage then update affected pages.
                 affected_slugs = triage_activity(activity_data, index_content)
@@ -594,11 +630,19 @@ def research_wiki_pipeline(
                 for slug in affected_slugs:
                     try:
                         current = _read_wiki_page(artifact_store, athlete_id, slug)
-                        updated = update_page(slug, current, activity_data, athlete_name)
+                        updated, graph = update_page_with_graph(
+                            slug, current, activity_data, athlete_name, athlete_id
+                        )
                         _write_wiki_page(artifact_store, athlete_id, slug, updated)
-                        # Refresh the vector for this page.
                         if not slug.startswith("_"):
                             _vector_index_page(athlete_id, slug, updated)
+                            graph_path = f"graph/{athlete_id}/{slug}.json"
+                            try:
+                                artifact_store.write_json(graph_path, graph)
+                                _vector_index_graph_page(athlete_id, slug, graph)
+                            except Exception as kg_exc:  # noqa: BLE001
+                                import sys
+                                print(f"[KG] index failed for {athlete_id}/{slug}: {kg_exc}", file=sys.stderr)
                     except Exception as page_exc:  # noqa: BLE001
                         page_errors.append(f"{slug}: {page_exc}")
 
@@ -905,6 +949,7 @@ def run_query_layer(
             "target_date": _normalize_date(normalized_target_date),
             "source_path": source_path,
             "error": "wiki_not_found",
+            "graph_hits": [],
         }
 
     # Concatenate all wiki pages for search
@@ -925,6 +970,21 @@ def run_query_layer(
         if str(hit.get("text", "")).strip()
     )
 
+    graph_hits: list[dict[str, Any]] = []
+    graph_slug_hits = _retrieve_graph_context(athlete_id, question, top_k=3)
+    if isinstance(graph_slug_hits, list):
+        for hit in graph_slug_hits:
+            graph_path = f"graph/{athlete_id}/{hit['slug']}.json"
+            graph_data = artifact_store.read_json(graph_path)
+            if isinstance(graph_data, dict):
+                graph_hits.append({
+                    "slug": hit["slug"],
+                    "triples": graph_data.get("triples") or [],
+                    "paths": graph_data.get("paths") or [],
+                    "embedding_text": graph_data.get("embedding_text") or "",
+                    "type": "graph",
+                })
+
     return {
         "mode": "wiki_research",
         "athlete_id": athlete_id,
@@ -932,6 +992,7 @@ def run_query_layer(
         "context": context_text,
         "target_date": _normalize_date(normalized_target_date),
         "source_path": source_path,
+        "graph_hits": graph_hits,
     }
 
 
